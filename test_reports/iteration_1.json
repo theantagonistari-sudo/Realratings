@@ -1,0 +1,38 @@
+{
+  "summary": "Backend-only testing for Real Ratings API — created pytest suite (41 tests) covering health, site config, auth (401 + Bearer/cookie), admin guards, property CRUD, filters, locations aggregation, submission approval flow, chat (auth + is_admin flag + sort + incremental since), contact form, admin-only mark_read/delete, file upload (auth + non-image reject + serve), validation (422/404), and _id leak checks. Also seeded users/sessions directly in Mongo (test_database) per spec. All 41 tests pass under the enforced xdist config (-n 2 --dist loadscope).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/properties (admin)", "issue": "Returns 200 instead of 201 on create — cosmetic; consumers should not care. Not a blocker."},
+      {"endpoint": "GET /api/files/{path}", "issue": "Serves file bytes only after a `db.files` record exists (records inserted only for /api/upload path). If storage was pre-populated out-of-band those objects can't be served — by design, but worth noting."},
+      {"endpoint": "POST /api/auth/session cookie", "issue": "Sets samesite=none; secure=true — correct for cross-site preview but a client on plain http would not receive the cookie. Bearer token fallback works so no functional gap."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_realratings.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PUT /api/properties/{id} accepts arbitrary status values (any string) — recommend validating status in {'published','pending','rejected'} to prevent typos leading to properties disappearing from all views.",
+    "Chat POST uses payload.text.strip()[:2000] but does not reject empty messages after strip. Recommend returning 400 for empty text to avoid empty bubbles.",
+    "get_current_user handles expires_at as either str or datetime — good, but user_sessions collection has no unique index on session_token beyond the startup create_index. Concurrent /auth/session calls could create duplicate session rows for the same token (unlikely because Emergent issues new tokens, but worth an insert_one with ON DUPLICATE handling).",
+    "Property model duplicated in PropertyCreate/PropertyUpdate — consider single-source-of-truth via a shared base or Pydantic model inheritance to prevent drift.",
+    "No pagination on /api/properties, /api/contact, /api/submissions — only a `limit` on list_properties. For growth, cursor/offset pagination is recommended.",
+    "server.py is 580 lines — approaching the 700-line split threshold; consider routes/models/auth split into modules for maintainability.",
+    "MIME whitelist for upload is small (jpg/png/gif/webp) — SVG/HEIC not accepted. Not a bug, just noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_realratings.py"
+  ],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "n/a"},
+  "test_credentials": "Seeded via Mongo direct insert per /app/memory/test_credentials.md pattern. Bearer tokens generated per-test-run with worker-suffixed values (see conftest.py — ADMIN_TOKEN / USER_TOKEN / ADMIN_EMAIL / USER_EMAIL). Admin role given by role='admin' field on user row.",
+  "seed_data_creation": "Session fixture inserts worker-scoped admin+user records and matching session tokens in test_database. Teardown cleans users, sessions, submitted_by-owned properties, chat_messages by user_id, and any contact_messages with TEST_ email prefix.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Suite lives at /app/backend/tests/test_realratings.py; conftest seeds unique users per xdist worker to avoid teardown races. Run with default `pytest` (pytest.ini enforces `-n 2 --dist loadscope`). If you extend TestChat/TestContact keep in mind classes may split across workers — each uses `_ensure_property` helper to self-seed a property. All 41 tests pass in ~3s against the preview URL. Backend does NOT leak _id fields anywhere (verified recursively).",
+  "rca of the issue": "No product bugs found. Two testing-infrastructure issues discovered and fixed: (1) initial run used shared user_ids across xdist workers → teardown race deleted users mid-test on other worker → 401 on upload; fixed by making user_id/token/email suffixed with PYTEST_XDIST_WORKER. (2) Cross-class shared state (TestChat depending on TestPropertyCRUD.property_id) failed when classes split across workers under loadscope; fixed by having TestChat and TestContact self-seed a property via a `_ensure_property` helper."
+}
