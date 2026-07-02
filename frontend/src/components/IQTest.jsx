@@ -340,8 +340,17 @@ export default function IQTest({ open, onOpenChange, onCompleted }) {
                   <button onClick={() => onOpenChange(false)} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs" data-testid="iq-close">
                     Done
                   </button>
+                  <a
+                    href="https://smarteryou.live"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto bg-moss text-paper hover:bg-mossdark transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs flex items-center gap-2"
+                    data-testid="iq-continue-smarteryou"
+                  >
+                    Continue on smarteryou.live →
+                  </a>
                   {!user && (
-                    <span className="ml-auto self-center overline text-graphite">Sign in to save your score to your profile</span>
+                    <span className="w-full text-right overline text-graphite mt-2">Sign in to save your score to your profile</span>
                   )}
                 </div>
               </>

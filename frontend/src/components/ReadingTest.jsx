@@ -356,6 +356,15 @@ export default function ReadingTest({ open, onOpenChange, onCompleted }) {
               <button onClick={() => onOpenChange(false)} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs" data-testid="reading-close">
                 Done
               </button>
+              <a
+                href="https://smarteryou.live"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto bg-moss text-paper hover:bg-mossdark transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs flex items-center gap-2"
+                data-testid="reading-continue-smarteryou"
+              >
+                Continue on smarteryou.live →
+              </a>
             </div>
           </div>
         )}
