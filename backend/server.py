@@ -11,6 +11,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import uuid
+import secrets
+import bcrypt
 import requests
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -24,6 +26,7 @@ MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY')
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'ari@realratings.live')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 CONTACT_EMAIL = os.environ.get('CONTACT_EMAIL', 'ari@realratings.live')
 WHATSAPP_NUMBER = os.environ.get('WHATSAPP_NUMBER', '')
 REVIEWER_NAME = os.environ.get('REVIEWER_NAME', 'Ari')
@@ -204,7 +207,7 @@ async def get_current_user(request: Request) -> Optional[dict]:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at and expires_at < datetime.now(timezone.utc):
         return None
-    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0, "password_hash": 0})
     return user
 
 
@@ -222,7 +225,83 @@ async def require_admin(request: Request) -> dict:
     return user
 
 
+# ----- Password Helpers -----
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+async def seed_admin():
+    if not ADMIN_PASSWORD:
+        return
+    existing = await db.users.find_one({"email": ADMIN_EMAIL}, {"_id": 0})
+    hashed = hash_password(ADMIN_PASSWORD)
+    if not existing:
+        await db.users.insert_one({
+            "user_id": f"user_{uuid.uuid4().hex[:12]}",
+            "email": ADMIN_EMAIL,
+            "name": REVIEWER_NAME,
+            "picture": "",
+            "role": "admin",
+            "password_hash": hashed,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Seeded admin user {ADMIN_EMAIL}")
+    else:
+        updates = {"role": "admin"}
+        if not existing.get("password_hash") or not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
+            updates["password_hash"] = hashed
+        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": updates})
+        logger.info(f"Refreshed admin user {ADMIN_EMAIL}")
+
+
+class AdminLogin(BaseModel):
+    email: str
+    password: str
+
+
 # ----- Auth Routes -----
+@api_router.post("/auth/admin/login")
+async def admin_login(payload: AdminLogin, response: Response):
+    email = payload.email.strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or user.get("role") != "admin" or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    session_token = secrets.token_urlsafe(48)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.insert_one({
+        "user_id": user["user_id"],
+        "session_token": session_token,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc),
+    })
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        max_age=7 * 24 * 60 * 60,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+    )
+    return {
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "name": user.get("name", "Admin"),
+        "picture": user.get("picture", ""),
+        "role": "admin",
+    }
+
+
 @api_router.post("/auth/session")
 async def create_session(request: Request, response: Response):
     body = await request.json()
@@ -572,6 +651,11 @@ async def startup():
     await db.user_sessions.create_index("session_token", unique=True)
     await db.properties.create_index("id", unique=True)
     await db.chat_messages.create_index([("property_id", 1), ("created_at", 1)])
+    # Seed admin
+    try:
+        await seed_admin()
+    except Exception as e:
+        logger.error(f"Admin seed failed: {e}")
     logger.info("Real Ratings API ready")
 
 

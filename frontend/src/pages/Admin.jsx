@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, fileUrl } from "../lib/api";
 import { toast } from "sonner";
@@ -7,7 +8,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs"
 import PropertyEditor from "../components/PropertyEditor";
 
 export default function Admin() {
-  const { user, loading, login } = useAuth();
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
   const [tab, setTab] = useState("properties");
   const [properties, setProperties] = useState([]);
   const [pending, setPending] = useState([]);
@@ -30,24 +32,14 @@ export default function Admin() {
     if (user?.role === "admin") refresh();
   }, [user]);
 
-  if (loading) return <div className="p-16 text-center">Loading…</div>;
+  useEffect(() => {
+    if (!loading && (!user || user.role !== "admin")) {
+      navigate("/admin/login", { replace: true });
+    }
+  }, [user, loading, navigate]);
 
-  if (!user) {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-24 text-center">
-        <h1 className="font-serif text-5xl mb-6">Admin only.</h1>
-        <button onClick={login} className="bg-ink text-paper px-8 py-4 uppercase tracking-widest text-xs" data-testid="admin-login">Sign in</button>
-      </div>
-    );
-  }
-
-  if (user.role !== "admin") {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-24 text-center">
-        <h1 className="font-serif text-5xl mb-6">Restricted.</h1>
-        <p className="text-graphite">This dashboard is for Real Ratings editors only.</p>
-      </div>
-    );
+  if (loading || !user || user.role !== "admin") {
+    return <div className="p-16 text-center overline text-graphite">Checking access…</div>;
   }
 
   const approve = async (id) => {

@@ -34,8 +34,9 @@ export default function Footer() {
           </ul>
         </div>
       </div>
-      <div className="border-t border-white/10 py-6 text-center overline text-paper/50">
-        © {new Date().getFullYear()} Real Ratings — Curated Spaces. Honest Reviews.
+      <div className="border-t border-white/10 py-6 flex flex-col md:flex-row items-center justify-between gap-2 px-6 md:px-12">
+        <div className="overline text-paper/50">© {new Date().getFullYear()} Real Ratings — Curated Spaces. Honest Reviews.</div>
+        <a href="/admin/login" className="overline text-paper/40 hover:text-paper/80 transition-colors" data-testid="footer-admin-link">Editor</a>
       </div>
     </footer>
   );

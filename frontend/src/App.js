@@ -10,6 +10,7 @@ import Properties from "@/pages/Properties";
 import PropertyDetail from "@/pages/PropertyDetail";
 import SubmitProperty from "@/pages/SubmitProperty";
 import Admin from "@/pages/Admin";
+import AdminLogin from "@/pages/AdminLogin";
 
 function AppRouter() {
   const location = useLocation();
@@ -24,6 +25,7 @@ function AppRouter() {
           <Route path="/properties/:id" element={<PropertyDetail />} />
           <Route path="/submit" element={<SubmitProperty />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
         </Routes>
       </main>
       <Footer />
