@@ -1,9 +1,13 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { LogIn, LogOut, User } from "lucide-react";
+import { LogIn, LogOut, User, Brain } from "lucide-react";
+import IQTest from "./IQTest";
 
 export default function Navbar() {
   const { user, login, logout } = useAuth();
+  const [iqOpen, setIqOpen] = useState(false);
+  const navigate = useNavigate();
 
   const linkCls = ({ isActive }) =>
     `overline hover:text-ink transition-colors ${isActive ? "text-ink" : "text-graphite"}`;
@@ -20,6 +24,10 @@ export default function Navbar() {
           <NavLink to="/" end className={linkCls} data-testid="nav-home">Home</NavLink>
           <NavLink to="/properties" className={linkCls} data-testid="nav-properties">Properties</NavLink>
           <NavLink to="/submit" className={linkCls} data-testid="nav-submit">Submit</NavLink>
+          <button onClick={() => setIqOpen(true)} className="overline text-graphite hover:text-ink transition-colors flex items-center gap-1.5" data-testid="nav-iq">
+            <Brain size={12} /> Test IQ
+          </button>
+          {user && <NavLink to="/profile" className={linkCls} data-testid="nav-profile">Profile</NavLink>}
           {user?.role === "admin" && (
             <NavLink to="/admin" className={linkCls} data-testid="nav-admin">Admin</NavLink>
           )}
@@ -28,14 +36,16 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-3">
-              {user.picture ? (
-                <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full border border-rule" data-testid="user-avatar" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-stone2 flex items-center justify-center">
-                  <User size={14} />
-                </div>
-              )}
-              <span className="hidden sm:block text-sm text-graphite" data-testid="user-name">{user.name?.split(" ")[0]}</span>
+              <button onClick={() => navigate("/profile")} className="flex items-center gap-2 hover:opacity-80" data-testid="user-menu">
+                {user.picture ? (
+                  <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full border border-rule" data-testid="user-avatar" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-stone2 flex items-center justify-center">
+                    <User size={14} />
+                  </div>
+                )}
+                <span className="hidden sm:block text-sm text-graphite" data-testid="user-name">{user.name?.split(" ")[0]}</span>
+              </button>
               <button
                 onClick={logout}
                 className="overline text-graphite hover:text-ink transition-colors flex items-center gap-1"
@@ -55,6 +65,7 @@ export default function Navbar() {
           )}
         </div>
       </div>
+      <IQTest open={iqOpen} onOpenChange={setIqOpen} />
     </header>
   );
 }

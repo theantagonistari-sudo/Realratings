@@ -612,6 +612,56 @@ async def serve_file(path: str):
     return FastAPIResponse(content=data, media_type=record.get("content_type", content_type))
 
 
+# ----- IQ Test -----
+class IQAttemptCreate(BaseModel):
+    iq: int
+    iq_lo: int
+    iq_hi: int
+    theta: float
+    sem: float
+    answered: int
+    correct: int
+    domains: dict = {}
+
+
+@api_router.post("/iq/attempts")
+async def create_iq_attempt(payload: IQAttemptCreate, user=Depends(require_user)):
+    doc = {
+        "id": f"iq_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        **payload.model_dump(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.iq_attempts.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/iq/me/latest")
+async def latest_iq(user=Depends(require_user)):
+    doc = await db.iq_attempts.find_one(
+        {"user_id": user["user_id"]}, {"_id": 0}, sort=[("created_at", -1)]
+    )
+    return doc or {}
+
+
+@api_router.get("/iq/me/history")
+async def iq_history(user=Depends(require_user)):
+    rows = await db.iq_attempts.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return rows
+
+
+# ----- User Profile -----
+@api_router.get("/me/properties")
+async def my_properties(user=Depends(require_user)):
+    rows = await db.properties.find(
+        {"submitted_by": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    return rows
+
+
 # ----- Site Config -----
 @api_router.get("/site/config")
 async def site_config():
