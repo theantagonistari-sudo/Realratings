@@ -662,6 +662,54 @@ async def my_properties(user=Depends(require_user)):
     return rows
 
 
+# ----- Subscribers (Lead capture) -----
+class SubscriberCreate(BaseModel):
+    email: str
+    name: Optional[str] = ""
+    source: str = "iq_test"  # 'iq_test' | 'footer' | 'contact'
+    iq_score: Optional[int] = None
+
+
+@api_router.post("/subscribers")
+async def create_subscriber(payload: SubscriberCreate):
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    existing = await db.subscribers.find_one({"email": email}, {"_id": 0})
+    if existing:
+        updates = {"last_seen_at": datetime.now(timezone.utc).isoformat()}
+        if payload.iq_score is not None:
+            updates["iq_score"] = payload.iq_score
+        if payload.name:
+            updates["name"] = payload.name
+        await db.subscribers.update_one({"email": email}, {"$set": updates})
+        return {"ok": True, "id": existing["id"], "duplicate": True}
+    doc = {
+        "id": f"sub_{uuid.uuid4().hex[:12]}",
+        "email": email,
+        "name": payload.name or "",
+        "source": payload.source,
+        "iq_score": payload.iq_score,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_seen_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.subscribers.insert_one(doc)
+    doc.pop("_id", None)
+    return {"ok": True, "id": doc["id"], "duplicate": False}
+
+
+@api_router.get("/subscribers")
+async def list_subscribers(user=Depends(require_admin)):
+    rows = await db.subscribers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return rows
+
+
+@api_router.delete("/subscribers/{sub_id}")
+async def delete_subscriber(sub_id: str, user=Depends(require_admin)):
+    await db.subscribers.delete_one({"id": sub_id})
+    return {"ok": True}
+
+
 # ----- Site Config -----
 @api_router.get("/site/config")
 async def site_config():

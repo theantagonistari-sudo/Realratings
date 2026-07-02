@@ -14,18 +14,21 @@ export default function Admin() {
   const [properties, setProperties] = useState([]);
   const [pending, setPending] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [subs, setSubs] = useState([]);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
 
   const refresh = async () => {
-    const [p, s, c] = await Promise.all([
+    const [p, s, c, sb] = await Promise.all([
       api.get("/properties", { params: { status: "published" } }),
       api.get("/submissions"),
       api.get("/contact"),
+      api.get("/subscribers"),
     ]);
     setProperties(p.data);
     setPending(s.data);
     setMessages(c.data);
+    setSubs(sb.data);
   };
 
   useEffect(() => {
@@ -60,6 +63,22 @@ export default function Admin() {
   };
   const markRead = async (id) => { await api.put(`/contact/${id}/read`); refresh(); };
   const delMsg = async (id) => { await api.delete(`/contact/${id}`); refresh(); };
+  const delSub = async (id) => {
+    if (!window.confirm("Remove this subscriber?")) return;
+    await api.delete(`/subscribers/${id}`);
+    refresh();
+  };
+  const exportSubs = () => {
+    const header = "email,name,source,iq_score,created_at\n";
+    const rows = subs.map((s) => [s.email, s.name || "", s.source, s.iq_score ?? "", s.created_at].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `real-ratings-subscribers-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="min-h-screen bg-paper">
@@ -84,6 +103,9 @@ export default function Admin() {
             </TabsTrigger>
             <TabsTrigger value="inbox" className="uppercase tracking-widest text-xs data-[state=active]:bg-ink data-[state=active]:text-paper rounded-sm" data-testid="tab-inbox">
               Inbox · {messages.filter((m) => !m.read).length}
+            </TabsTrigger>
+            <TabsTrigger value="subs" className="uppercase tracking-widest text-xs data-[state=active]:bg-ink data-[state=active]:text-paper rounded-sm" data-testid="tab-subs">
+              Subscribers · {subs.length}
             </TabsTrigger>
           </TabsList>
 
@@ -162,6 +184,34 @@ export default function Admin() {
                   </div>
                   <p className="text-graphite mt-3 whitespace-pre-line">{m.message}</p>
                   <div className="text-xs text-graphite mt-3">{new Date(m.created_at).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="subs">
+            <div className="bg-white border border-rule">
+              <div className="flex items-center justify-between p-4 border-b border-rule">
+                <div className="overline text-graphite">
+                  {subs.length} subscriber{subs.length === 1 ? "" : "s"} · from IQ test, contact form, etc.
+                </div>
+                <button onClick={exportSubs} disabled={subs.length === 0} className="text-xs uppercase tracking-widest px-4 py-2 border border-ink hover:bg-ink hover:text-paper transition-colors disabled:opacity-40" data-testid="btn-export-subs">
+                  Export CSV
+                </button>
+              </div>
+              {subs.length === 0 && <div className="p-12 text-center text-graphite italic">No subscribers yet — share the IQ test to start capturing leads.</div>}
+              {subs.map((s) => (
+                <div key={s.id} className="flex items-center gap-4 border-b border-rule last:border-b-0 p-4" data-testid={`sub-${s.id}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-serif text-lg truncate">{s.name || s.email}</div>
+                    <div className="text-xs text-graphite">{s.email}</div>
+                  </div>
+                  <div className="text-xs text-graphite uppercase tracking-widest">{s.source}</div>
+                  {s.iq_score != null && (
+                    <div className="text-xs px-2 py-1 border border-moss text-moss uppercase tracking-widest">IQ {s.iq_score}</div>
+                  )}
+                  <div className="text-xs text-graphite hidden md:block">{new Date(s.created_at).toLocaleDateString()}</div>
+                  <button onClick={() => delSub(s.id)} className="border border-rule p-2 hover:bg-[#9B2C2C] hover:text-paper hover:border-[#9B2C2C]" data-testid={`del-sub-${s.id}`}><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>

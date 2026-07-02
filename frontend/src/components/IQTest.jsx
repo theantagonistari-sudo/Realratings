@@ -9,7 +9,10 @@ const TOTAL_SECONDS = 20 * 60;
 
 export default function IQTest({ open, onOpenChange, onCompleted }) {
   const { user } = useAuth();
-  const [phase, setPhase] = useState("intro"); // intro | test | results
+  const [phase, setPhase] = useState("intro"); // intro | test | gate | results
+  const [gateEmail, setGateEmail] = useState("");
+  const [gateName, setGateName] = useState("");
+  const [gateSubmitting, setGateSubmitting] = useState(false);
   const [items, setItems] = useState([]);
   const [answers, setAnswers] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -53,8 +56,38 @@ export default function IQTest({ open, onOpenChange, onCompleted }) {
     clearInterval(timerRef.current);
     const r = scoreAttempt(items, answers);
     setResult(r);
+    // If signed in, auto-subscribe silently (email already known) and go to results.
+    // Otherwise, show the email gate first.
+    if (!r.valid || user) {
+      if (user && r.valid) {
+        api.post("/subscribers", {
+          email: user.email, name: user.name || "",
+          source: "iq_test", iq_score: r.iq,
+        }).catch(() => {});
+      }
+      setPhase("results");
+    } else {
+      setPhase("gate");
+    }
+  };
+
+  const submitGate = async (e) => {
+    e?.preventDefault();
+    if (!gateEmail || !gateEmail.includes("@")) return;
+    setGateSubmitting(true);
+    try {
+      await api.post("/subscribers", {
+        email: gateEmail.trim(),
+        name: gateName.trim(),
+        source: "iq_test",
+        iq_score: result?.iq,
+      });
+    } catch {}
+    setGateSubmitting(false);
     setPhase("results");
   };
+
+  const skipGate = () => setPhase("results");
 
   // Persist result once
   useEffect(() => {
@@ -104,6 +137,7 @@ export default function IQTest({ open, onOpenChange, onCompleted }) {
               <DialogTitle className="font-serif text-3xl md:text-4xl tracking-tighter text-ink text-left">
                 {phase === "intro" && "Test your IQ."}
                 {phase === "test"  && "Item " + (idx + 1) + " of " + items.length}
+                {phase === "gate"  && "One last step."}
                 {phase === "results" && "Your results."}
               </DialogTitle>
             </div>
@@ -192,6 +226,56 @@ export default function IQTest({ open, onOpenChange, onCompleted }) {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {phase === "gate" && result && result.valid && (
+          <div className="px-8 py-8" data-testid="iq-gate">
+            <div className="mb-6">
+              <div className="overline text-moss mb-2">Almost there</div>
+              <p className="font-serif text-2xl leading-snug text-ink">
+                Drop your email and we'll unlock your score plus a one-page breakdown — and add you to Real Ratings' short, curated newsletter (one email a month, unsubscribe anytime).
+              </p>
+            </div>
+            <form onSubmit={submitGate} className="space-y-5">
+              <div>
+                <label className="overline block mb-2">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={gateEmail}
+                  onChange={(e) => setGateEmail(e.target.value)}
+                  placeholder="you@domain.com"
+                  className="w-full bg-transparent border-b border-rule rounded-none px-0 py-2 focus:outline-none focus:border-ink transition-colors"
+                  data-testid="iq-gate-email"
+                  autoComplete="email"
+                />
+              </div>
+              <div>
+                <label className="overline block mb-2">First name (optional)</label>
+                <input
+                  value={gateName}
+                  onChange={(e) => setGateName(e.target.value)}
+                  className="w-full bg-transparent border-b border-rule rounded-none px-0 py-2 focus:outline-none focus:border-ink transition-colors"
+                  data-testid="iq-gate-name"
+                  autoComplete="given-name"
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+                <button type="button" onClick={skipGate} className="overline text-graphite hover:text-ink" data-testid="iq-gate-skip">
+                  No thanks, just show my score →
+                </button>
+                <button
+                  type="submit"
+                  disabled={gateSubmitting}
+                  className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-8 py-3 uppercase tracking-widest text-xs disabled:opacity-50"
+                  data-testid="iq-gate-submit"
+                >
+                  {gateSubmitting ? "Unlocking…" : "Reveal my score"}
+                </button>
+              </div>
+              <p className="text-xs text-graphite italic pt-2">We'll never share your email. One-click unsubscribe.</p>
+            </form>
           </div>
         )}
 
