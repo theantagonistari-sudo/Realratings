@@ -1,0 +1,118 @@
+{
+  "theme": "Light Theme",
+  "archetype": "Archetype 5: Luxury (Editorial / Old Money Tech Variant)",
+  "brand_name": "Real Ratings",
+  "design_philosophy": "Architectural Digest meets modern marketplace. A typography-forward, magazine-style editorial experience. High contrast, tactile backgrounds, and asymmetrical grids. The tone is authoritative, curated, and highly opinionated. No generic real estate UI.",
+  "colors": {
+    "background_primary": "#F9F8F6",
+    "background_secondary": "#EAE6DF",
+    "text_primary": "#1A1A1A",
+    "text_secondary": "#4A4A4A",
+    "accent_primary": "#2C4033",
+    "accent_hover": "#1E2D23",
+    "border_color": "#D1CEC7",
+    "error": "#9B2C2C",
+    "success": "#2F5A3F",
+    "whatsapp_brand": "#25D366"
+  },
+  "typography": {
+    "headings_font": "Cormorant Garamond",
+    "body_font": "Outfit",
+    "rules": [
+      "NEVER use Inter or Roboto.",
+      "Headlines MUST use tight letter spacing (tracking-tighter) and leading-none.",
+      "Use explicit serif font for all H1, H2, and H3.",
+      "Labels and overlines must be Uppercase, Tiny, and Wide Spaced (tracking-[0.2em]).",
+      "Body text should be 16px to 18px for comfortable long-form reading (leading-relaxed)."
+    ],
+    "scale": {
+      "h1": "text-5xl sm:text-6xl lg:text-7xl font-serif tracking-tighter text-[#1A1A1A]",
+      "h2": "text-3xl sm:text-4xl lg:text-5xl font-serif tracking-tight text-[#1A1A1A]",
+      "h3": "text-2xl sm:text-3xl font-serif text-[#1A1A1A]",
+      "body": "text-base md:text-lg font-sans text-[#4A4A4A] leading-relaxed",
+      "overline": "text-xs font-sans uppercase tracking-[0.2em] font-semibold text-[#4A4A4A]"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing Philosophy. Use 2-3x more spacing than typical designs. Use p-8, p-12, p-16.",
+    "container": "max-w-7xl mx-auto px-6 md:px-12",
+    "grid_strategy": "The 'Tetris' Bento Grid for property displays. Asymmetrical, editorial layouts. Mix wide span cards with narrow tall cards.",
+    "border_radius": "rounded-sm (Keep it sharp, architectural, max 4px radius)"
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#1A1A1A] text-white hover:bg-[#2C4033] transition-colors duration-300 rounded-sm px-6 py-3 font-sans uppercase tracking-widest text-xs",
+      "whatsapp": "bg-[#25D366] text-white hover:bg-[#1DA851] transition-colors duration-300 rounded-sm px-6 py-3 font-sans font-medium flex items-center gap-2",
+      "outline": "border border-[#1A1A1A] text-[#1A1A1A] hover:bg-[#1A1A1A] hover:text-white transition-colors duration-300 rounded-sm px-6 py-3 font-sans uppercase tracking-widest text-xs"
+    },
+    "cards": {
+      "property": "bg-white border border-[#D1CEC7] rounded-sm overflow-hidden flex flex-col group",
+      "editorial_review": "bg-[#EAE6DF] border-l-4 border-[#2C4033] p-8 md:p-12 relative"
+    },
+    "inputs": "bg-transparent border-b border-[#D1CEC7] rounded-none px-0 py-3 focus:outline-none focus:border-[#1A1A1A] focus:ring-0 w-full transition-colors font-sans",
+    "badges": "inline-flex items-center px-2 py-1 bg-[#F9F8F6] border border-[#D1CEC7] text-xs uppercase tracking-widest font-sans text-[#1A1A1A]"
+  },
+  "pages": {
+    "homepage": {
+      "hero": "Split layout. Left: Editorial H1 ('Curated Spaces. Honest Reviews.'), overline, primary CTA. Right: Large architectural hero image. Background: #F9F8F6.",
+      "search_bar": "Minimalist sticky bar overlapping the bottom of the hero. Input for location, Select dropdown for Rent/Short Stay, and a bold search button.",
+      "locations": "Bento grid of cities. Dark overlays (bg-black/30) over location images with white serif text centered.",
+      "listings": "Masonry/Asymmetrical grid of property cards. Include 'Rent' or 'Short Stay' badges."
+    },
+    "property_detail": {
+      "layout": "Two columns. Left (65%): Image Gallery (1 large, 2 small bento style), Description, 'Real Ratings Review'. Right (35%): Sticky sidebar with price, contact form, WhatsApp button.",
+      "editorial_review_block": "A distinct visual block (bg-[#EAE6DF]). Must include Ari's grayscale portrait, an italic serif quote, a star rating, and a clear 'Pros / Cons' list.",
+      "chat_room": "Real-time chat UI placed below the main content. Clean UI, requires Google Login to post. Distinguish admin (Ari) messages visually (e.g., subtle green bg)."
+    },
+    "admin_dashboard": {
+      "layout": "'Control Room' grid. Dense, highly functional. Sidebar navigation (dark #1A1A1A bg, white text).",
+      "content": "Tables for properties (Shadcn UI), Inbox for contact forms, Moderation queue for chat/submissions. Use strict Shadcn components here for utility."
+    }
+  },
+  "motion_and_interactions": {
+    "hover_states": "Images inside cards must scale up slightly (scale-105) on hover with smooth transition. Buttons invert colors.",
+    "scroll": "Use Lenis for smooth scrolling if possible. Fade-in-up animations for property cards using framer-motion."
+  },
+  "testing": {
+    "rules": [
+      "All interactive elements MUST have a data-testid attribute in kebab-case."
+    ]
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_property_main",
+        "url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBob21lfGVufDB8fHx8MTc4MTkyNjg1M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "White modern architectural home with pool, used for main hero section."
+      },
+      {
+        "category": "property_listing_1",
+        "url": "https://images.unsplash.com/photo-1706808849780-7a04fbac83ef?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBob21lfGVufDB8fHx8MTc4MTkyNjg1M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Modern house with pool and lounge chairs."
+      },
+      {
+        "category": "property_interior_1",
+        "url": "https://images.unsplash.com/photo-1724582586458-a51791349977?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxpbnRlcmlvciUyMGRlc2lnbiUyMGxpdmluZyUyMHJvb20lMjBwcmVtaXVtfGVufDB8fHx8MTc4MjI1Njg4Mnww&ixlib=rb-4.1.0&q=85",
+        "description": "Modern living room with a large window."
+      },
+      {
+        "category": "property_interior_2",
+        "url": "https://images.unsplash.com/photo-1646987916641-1f3c8992daa2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwzfHxpbnRlcmlvciUyMGRlc2lnbiUyMGxpdmluZyUyMHJvb20lMjBwcmVtaXVtfGVufDB8fHx8MTc4MjI1Njg4Mnww&ixlib=rb-4.1.0&q=85",
+        "description": "Premium living room interior."
+      },
+      {
+        "category": "reviewer_portrait",
+        "url": "https://images.unsplash.com/photo-1506863530036-1efeddceb993?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwxfHxlZGl0b3JpYWwlMjBwb3J0cmFpdCUyMHN0eWxlfGVufDB8fHx8MTc4MjA2NTg0NHww&ixlib=rb-4.1.0&q=85",
+        "description": "Grayscale editorial portrait of Ari."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install and configure 'Cormorant Garamond' and 'Outfit' fonts from Google Fonts.",
+    "Implement the UI using React, Tailwind CSS, and Shadcn UI (specifically tailored to match the custom colors/borders).",
+    "Ensure all data-testids are added to inputs, buttons, and navigable elements.",
+    "For the Real Ratings Review block, explicitly render 'Reviewed by Ari' and use the reviewer_portrait URL provided.",
+    "Use the exact color codes provided for the editorial theme.",
+    "The layout must heavily utilize negative space and asymmetrical grid columns."
+  ]
+}
