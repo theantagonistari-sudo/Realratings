@@ -10,6 +10,14 @@ export default function Properties() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState(params.get("location") || "");
   const [type, setType] = useState(params.get("rental_type") || "");
+  const activeType = params.get("rental_type") || "";
+
+  const setType2 = (t) => {
+    const next = new URLSearchParams(params);
+    if (t) next.set("rental_type", t); else next.delete("rental_type");
+    setParams(next);
+    setType(t);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -29,11 +37,35 @@ export default function Properties() {
     setParams(next);
   };
 
+  const headings = {
+    "": { over: "Every listing", h1: "Every stay, reviewed." },
+    rent: { over: "Long-term", h1: "Homes for rent." },
+    short_stay: { over: "Nightly", h1: "Short stays worth booking." },
+  };
+  const heading = headings[activeType] || headings[""];
+  const segBtn = (val, label) => (
+    <button
+      key={val || "all"}
+      onClick={() => setType2(val)}
+      className={`px-6 py-3 uppercase tracking-widest text-xs transition-colors ${activeType === val ? "bg-ink text-paper" : "text-graphite hover:text-ink"}`}
+      data-testid={`seg-${val || "all"}`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="max-w-7xl mx-auto px-6 md:px-12 py-12">
-      <div className="mb-10">
-        <div className="overline text-moss mb-3">Properties</div>
-        <h1 className="font-serif text-4xl md:text-6xl tracking-tighter">Every stay, reviewed.</h1>
+      <div className="mb-8">
+        <div className="overline text-moss mb-3">{heading.over}</div>
+        <h1 className="font-serif text-4xl md:text-6xl tracking-tighter">{heading.h1}</h1>
+      </div>
+
+      {/* Segmented control */}
+      <div className="inline-flex border border-ink mb-8 bg-white" data-testid="type-segment">
+        {segBtn("", "All")}
+        {segBtn("rent", "For Rent")}
+        {segBtn("short_stay", "Short Stay")}
       </div>
 
       <form onSubmit={apply} className="bg-white border border-rule p-4 md:p-6 flex flex-col md:flex-row gap-4 mb-12" data-testid="listing-filter-form">
@@ -47,16 +79,6 @@ export default function Properties() {
             data-testid="filter-location"
           />
         </div>
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          className="w-full md:w-56 bg-transparent border md:border-0 md:border-l border-rule focus:outline-none px-4 py-3 uppercase text-xs tracking-widest text-graphite"
-          data-testid="filter-type"
-        >
-          <option value="">Any type</option>
-          <option value="rent">For Rent</option>
-          <option value="short_stay">Short Stay</option>
-        </select>
         <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-8 py-3 uppercase tracking-widest text-xs" data-testid="filter-apply">
           Apply
         </button>

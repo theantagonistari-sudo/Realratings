@@ -20,9 +20,10 @@ export default function Navbar() {
           <span className="hidden sm:inline overline text-moss">Editorial</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-10">
+        <nav className="hidden md:flex items-center gap-8">
           <NavLink to="/" end className={linkCls} data-testid="nav-home">Home</NavLink>
-          <NavLink to="/properties" className={linkCls} data-testid="nav-properties">Properties</NavLink>
+          <NavLink to="/properties?rental_type=rent" className={linkCls} data-testid="nav-rent">For Rent</NavLink>
+          <NavLink to="/properties?rental_type=short_stay" className={linkCls} data-testid="nav-shortstay">Short Stay</NavLink>
           <NavLink to="/submit" className={linkCls} data-testid="nav-submit">Submit</NavLink>
           <button onClick={() => setIqOpen(true)} className="overline text-graphite hover:text-ink transition-colors flex items-center gap-1.5" data-testid="nav-iq">
             <Brain size={12} /> Test IQ

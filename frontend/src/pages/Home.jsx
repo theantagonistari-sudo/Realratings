@@ -14,14 +14,16 @@ const LOCATION_IMG = [
 ];
 
 export default function Home() {
-  const [properties, setProperties] = useState([]);
+  const [rentals, setRentals] = useState([]);
+  const [stays, setStays] = useState([]);
   const [locations, setLocations] = useState([]);
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get("/properties", { params: { limit: 6 } }).then(({ data }) => setProperties(data));
+    api.get("/properties", { params: { limit: 6, rental_type: "rent" } }).then(({ data }) => setRentals(data));
+    api.get("/properties", { params: { limit: 6, rental_type: "short_stay" } }).then(({ data }) => setStays(data));
     api.get("/properties/locations").then(({ data }) => setLocations(data));
   }, []);
 
@@ -132,34 +134,66 @@ export default function Home() {
         </section>
       )}
 
-      {/* Latest Reviews */}
-      <section className="max-w-7xl mx-auto px-6 md:px-12 py-20">
+      {/* Two clearly separated categories */}
+      <CategorySection
+        overline="For Rent"
+        title="Long-term homes."
+        subtitle="Reviewed rentals for a month, a season, or a year."
+        items={rentals}
+        seeAllHref="/properties?rental_type=rent"
+        emptyLabel="No rentals published yet."
+        testid="section-rentals"
+      />
+
+      <div className="max-w-7xl mx-auto px-6 md:px-12">
+        <div className="rr-hairline" />
+      </div>
+
+      <CategorySection
+        overline="Short Stay"
+        title="Nights worth booking."
+        subtitle="Curated short stays — from weekend getaways to a fortnight abroad."
+        items={stays}
+        seeAllHref="/properties?rental_type=short_stay"
+        emptyLabel="No short stays published yet."
+        testid="section-shortstay"
+        dark
+      />
+    </>
+  );
+}
+
+function CategorySection({ overline, title, subtitle, items, seeAllHref, emptyLabel, testid, dark = false }) {
+  return (
+    <section className={dark ? "bg-ink text-paper py-20" : "py-20"} data-testid={testid}>
+      <div className="max-w-7xl mx-auto px-6 md:px-12">
         <div className="flex items-end justify-between mb-10 flex-wrap gap-4">
           <div>
-            <div className="overline text-moss mb-3">Latest Reviews</div>
-            <h2 className="font-serif text-4xl md:text-5xl tracking-tight">Fresh from the editor.</h2>
+            <div className={`overline mb-3 ${dark ? "text-paper/70" : "text-moss"}`}>{overline}</div>
+            <h2 className={`font-serif text-4xl md:text-5xl tracking-tight ${dark ? "text-paper" : "text-ink"}`}>{title}</h2>
+            {subtitle && <p className={`mt-3 max-w-xl ${dark ? "text-paper/70" : "text-graphite"}`}>{subtitle}</p>}
           </div>
-          <Link to="/properties" className="overline text-ink hover:text-moss transition-colors flex items-center gap-1">
+          <Link
+            to={seeAllHref}
+            className={`overline flex items-center gap-1 transition-colors ${dark ? "text-paper hover:text-paper/70" : "text-ink hover:text-moss"}`}
+            data-testid={`${testid}-see-all`}
+          >
             See all <ArrowRight size={14} />
           </Link>
         </div>
 
-        {properties.length === 0 ? (
-          <div className="border border-dashed border-rule p-16 text-center">
-            <p className="font-serif text-3xl text-ink mb-3">The bookshelf is being stocked.</p>
-            <p className="text-graphite mb-6">No properties have been published yet. Check back soon, or submit one for review.</p>
-            <Link to="/submit" className="inline-block bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 font-sans uppercase tracking-widest text-xs" data-testid="empty-submit">
-              Submit a property
-            </Link>
+        {items.length === 0 ? (
+          <div className={`border border-dashed p-12 text-center ${dark ? "border-white/20 text-paper/60" : "border-rule text-graphite"}`}>
+            <p className="font-serif text-2xl">{emptyLabel}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {properties.map((p) => (
+            {items.map((p) => (
               <PropertyCard key={p.id} property={p} />
             ))}
           </div>
         )}
-      </section>
-    </>
+      </div>
+    </section>
   );
 }
