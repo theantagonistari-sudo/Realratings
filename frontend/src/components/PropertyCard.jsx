@@ -1,10 +1,12 @@
 import { Link } from "react-router-dom";
-import { Star, MapPin, BedDouble, Bath } from "lucide-react";
+import { Star, MapPin, BedDouble, Bath, Pencil } from "lucide-react";
 import { fileUrl } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 const FALLBACK = "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&w=1200&q=70";
 
 export default function PropertyCard({ property, span = "" }) {
+  const { user } = useAuth();
   const cover = property.images?.[0] ? fileUrl(property.images[0]) : FALLBACK;
   const price = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(property.price);
   const period = property.price_period === "night" ? "/ night" : "/ month";
@@ -32,6 +34,11 @@ export default function PropertyCard({ property, span = "" }) {
             </span>
           )}
         </div>
+        {user?.role === "admin" && (
+          <span className="absolute top-4 right-4 bg-ink text-paper text-[10px] uppercase tracking-[0.2em] px-2.5 py-1 font-semibold flex items-center gap-1" data-testid={`card-admin-edit-${property.id}`}>
+            <Pencil size={10} /> Edit
+          </span>
+        )}
       </div>
       <div className="p-6">
         <div className="flex items-center gap-1.5 text-graphite text-xs mb-2">

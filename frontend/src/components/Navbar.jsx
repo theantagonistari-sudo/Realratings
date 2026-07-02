@@ -1,7 +1,7 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { LogIn, LogOut, User, Brain } from "lucide-react";
+import { LogIn, LogOut, User, Brain, Lock } from "lucide-react";
 import IQTest from "./IQTest";
 
 export default function Navbar() {
@@ -56,13 +56,18 @@ export default function Navbar() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={login}
-              className="bg-ink text-paper hover:bg-moss transition-colors duration-300 rounded-sm px-5 py-2.5 font-sans uppercase tracking-widest text-xs flex items-center gap-2"
-              data-testid="btn-login"
-            >
-              <LogIn size={14} /> Sign in
-            </button>
+            <div className="flex items-center gap-3">
+              <Link to="/admin/login" title="Editor sign-in" className="text-graphite hover:text-ink transition-colors" data-testid="nav-admin-login">
+                <Lock size={16} />
+              </Link>
+              <button
+                onClick={login}
+                className="bg-ink text-paper hover:bg-moss transition-colors duration-300 rounded-sm px-5 py-2.5 font-sans uppercase tracking-widest text-xs flex items-center gap-2"
+                data-testid="btn-login"
+              >
+                <LogIn size={14} /> Sign in
+              </button>
+            </div>
           )}
         </div>
       </div>

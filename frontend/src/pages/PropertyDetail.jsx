@@ -1,27 +1,46 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, fileUrl } from "../lib/api";
-import { Star, MapPin, BedDouble, Bath, MessageCircle, Home as HomeIcon } from "lucide-react";
+import { Star, MapPin, BedDouble, Bath, MessageCircle, Home as HomeIcon, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import ChatRoom from "../components/ChatRoom";
 import ContactForm from "../components/ContactForm";
+import PropertyEditor from "../components/PropertyEditor";
+import { useAuth } from "../context/AuthContext";
 
 const REVIEWER_PORTRAIT = "https://images.unsplash.com/photo-1506863530036-1efeddceb993?crop=entropy&cs=srgb&fm=jpg&w=400&q=80&sat=-100";
 const FALLBACK = "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&w=1600&q=80";
 
 export default function PropertyDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [prop, setProp] = useState(null);
   const [cfg, setCfg] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeImg, setActiveImg] = useState(0);
+  const [editing, setEditing] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
-    Promise.all([
+    return Promise.all([
       api.get(`/properties/${id}`).then(({ data }) => setProp(data)),
       api.get("/site/config").then(({ data }) => setCfg(data)),
     ]).finally(() => setLoading(false));
-  }, [id]);
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  const del = async () => {
+    if (!window.confirm(`Delete "${prop.title}" permanently? This also removes its chat history.`)) return;
+    try {
+      await api.delete(`/properties/${prop.id}`);
+      toast.success("Property deleted.");
+      navigate("/properties", { replace: true });
+    } catch {
+      toast.error("Could not delete.");
+    }
+  };
 
   if (loading) return <div className="max-w-7xl mx-auto px-6 md:px-12 py-20 text-graphite italic">Loading…</div>;
   if (!prop) return (
@@ -43,8 +62,28 @@ export default function PropertyDetail() {
   return (
     <div className="max-w-7xl mx-auto px-6 md:px-12 py-8 md:py-12">
       {/* Breadcrumb */}
-      <div className="overline text-graphite mb-8">
-        <Link to="/" className="hover:text-ink">Home</Link> / <Link to="/properties" className="hover:text-ink">Properties</Link> / <span className="text-ink">{prop.location}</span>
+      <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+        <div className="overline text-graphite">
+          <Link to="/" className="hover:text-ink">Home</Link> / <Link to="/properties" className="hover:text-ink">Properties</Link> / <span className="text-ink">{prop.location}</span>
+        </div>
+        {user?.role === "admin" && (
+          <div className="flex items-center gap-2" data-testid="admin-actions">
+            <button
+              onClick={() => setEditing(true)}
+              className="border border-ink px-4 py-2 uppercase tracking-widest text-xs hover:bg-ink hover:text-paper transition-colors flex items-center gap-2"
+              data-testid="btn-edit-property"
+            >
+              <Pencil size={12} /> Edit
+            </button>
+            <button
+              onClick={del}
+              className="border border-rule px-4 py-2 uppercase tracking-widest text-xs hover:bg-[#9B2C2C] hover:text-paper hover:border-[#9B2C2C] transition-colors flex items-center gap-2"
+              data-testid="btn-delete-property"
+            >
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Title */}
@@ -203,6 +242,15 @@ export default function PropertyDetail() {
           </div>
         </aside>
       </div>
+
+      {editing && (
+        <PropertyEditor
+          property={prop}
+          isNew={false}
+          onClose={() => setEditing(false)}
+          onSaved={() => { setEditing(false); load(); }}
+        />
+      )}
     </div>
   );
 }
