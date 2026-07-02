@@ -7,6 +7,18 @@ html, body, #root {
     color: #1A1A1A;
 }
 
+/* Hide Emergent branding badge */
+#emergent-badge,
+a#emergent-badge,
+a[href*="emergent"][id="emergent-badge"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
 body {
     margin: 0;
     font-family: 'Outfit', system-ui, -apple-system, sans-serif;
