@@ -654,6 +654,41 @@ async def iq_history(user=Depends(require_user)):
 
 
 # ----- User Profile -----
+class ReadingAttemptCreate(BaseModel):
+    best_fit: str
+    label: str
+    free_wpm: int
+    free_comp: float
+    free_cawpm: int
+    chunked_wpm: int
+    chunked_comp: float
+    chunked_cawpm: int
+    pacer_wpm: int
+    pacer_comp: float
+    pacer_cawpm: int
+
+
+@api_router.post("/reading/attempts")
+async def create_reading_attempt(payload: ReadingAttemptCreate, user=Depends(require_user)):
+    doc = {
+        "id": f"read_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        **payload.model_dump(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.reading_attempts.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/reading/me/latest")
+async def latest_reading(user=Depends(require_user)):
+    doc = await db.reading_attempts.find_one(
+        {"user_id": user["user_id"]}, {"_id": 0}, sort=[("created_at", -1)]
+    )
+    return doc or {}
+
+
 @api_router.get("/me/properties")
 async def my_properties(user=Depends(require_user)):
     rows = await db.properties.find(

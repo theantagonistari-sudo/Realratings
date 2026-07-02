@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import PropertyCard from "../components/PropertyCard";
-import { Search, ArrowRight } from "lucide-react";
+import ReadingTest from "../components/ReadingTest";
+import { Search, ArrowRight, BookOpen, Sparkles } from "lucide-react";
 
 const HERO_IMG = "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&w=1600&q=80";
 
@@ -14,18 +16,43 @@ const LOCATION_IMG = [
 ];
 
 export default function Home() {
+  const { user } = useAuth();
   const [rentals, setRentals] = useState([]);
   const [stays, setStays] = useState([]);
   const [locations, setLocations] = useState([]);
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
+  const [readingOpen, setReadingOpen] = useState(false);
+  const [bestFit, setBestFit] = useState(null);
   const navigate = useNavigate();
+
+  const loadBestFit = () => {
+    // Prefer backend (signed-in), fall back to localStorage
+    if (user) {
+      api.get("/reading/me/latest").then(({ data }) => {
+        if (data && data.best_fit) setBestFit(data);
+        else {
+          try {
+            const local = JSON.parse(localStorage.getItem("rr_reading_best") || "null");
+            if (local) setBestFit(local);
+          } catch {}
+        }
+      }).catch(() => {});
+    } else {
+      try {
+        const local = JSON.parse(localStorage.getItem("rr_reading_best") || "null");
+        if (local) setBestFit(local);
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     api.get("/properties", { params: { limit: 6, rental_type: "rent" } }).then(({ data }) => setRentals(data));
     api.get("/properties", { params: { limit: 6, rental_type: "short_stay" } }).then(({ data }) => setStays(data));
     api.get("/properties/locations").then(({ data }) => setLocations(data));
-  }, []);
+    loadBestFit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const search = (e) => {
     e.preventDefault();
@@ -37,6 +64,46 @@ export default function Home() {
 
   return (
     <>
+      {/* Featured — Reading Style Placement */}
+      <section className="bg-ink text-paper" data-testid="reading-featured">
+        <div className="max-w-7xl mx-auto px-6 md:px-12 py-8">
+          <div className="grid md:grid-cols-12 gap-6 items-center">
+            <div className="md:col-span-8 flex items-start gap-5">
+              <div className="hidden sm:flex shrink-0 w-14 h-14 border border-paper/30 items-center justify-center">
+                <BookOpen size={22} className="text-paper" />
+              </div>
+              <div>
+                <div className="overline text-paper/70 mb-2 flex items-center gap-2">
+                  <Sparkles size={12} /> Featured · 6 minutes
+                </div>
+                <div className="font-serif text-3xl md:text-4xl leading-tight tracking-tight">Find your reading style.</div>
+                <p className="text-paper/70 mt-2 text-sm md:text-base max-w-xl">
+                  Same passage at three paces — free read, 3-word chunks, and a pacer at 110% of your baseline. We only recommend a technique if it actually raised your comprehension-adjusted WPM.
+                </p>
+                {bestFit && (
+                  <div className="mt-4 inline-flex items-center gap-3 border border-paper/30 px-4 py-2" data-testid="reading-best-badge">
+                    <span className="overline text-paper/70">Your best fit</span>
+                    <span className="font-serif text-lg">{bestFit.label}</span>
+                    {bestFit.best_fit !== "natural" && (
+                      <span className="text-paper/70 text-xs">· {bestFit[`${bestFit.best_fit}_wpm`] || bestFit.free_wpm} WPM</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="md:col-span-4 flex md:justify-end">
+              <button
+                onClick={() => setReadingOpen(true)}
+                className="bg-paper text-ink hover:bg-stone2 transition-colors rounded-sm px-8 py-4 uppercase tracking-widest text-xs w-full md:w-auto"
+                data-testid="btn-reading-start"
+              >
+                {bestFit ? "Retake test" : "Take the test"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Hero */}
       <section className="relative bg-paper overflow-hidden" data-testid="home-hero">
         <div className="max-w-7xl mx-auto px-6 md:px-12 pt-16 md:pt-24 pb-12">
@@ -159,6 +226,8 @@ export default function Home() {
         testid="section-shortstay"
         dark
       />
+
+      <ReadingTest open={readingOpen} onOpenChange={setReadingOpen} onCompleted={loadBestFit} />
     </>
   );
 }
