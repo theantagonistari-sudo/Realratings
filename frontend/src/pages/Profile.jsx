@@ -2,15 +2,18 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, fileUrl } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-import { Brain, User as UserIcon, RotateCw, LogIn } from "lucide-react";
+import { Brain, BookOpen, User as UserIcon, RotateCw, LogIn } from "lucide-react";
 import IQTest from "../components/IQTest";
+import ReadingTest from "../components/ReadingTest";
 
 export default function Profile() {
   const { user, loading, login } = useAuth();
   const [latest, setLatest] = useState(null);
+  const [reading, setReading] = useState(null);
   const [history, setHistory] = useState([]);
   const [props, setProps] = useState([]);
   const [testOpen, setTestOpen] = useState(false);
+  const [readingOpen, setReadingOpen] = useState(false);
   const navigate = useNavigate();
 
   const load = () => {
@@ -19,6 +22,7 @@ export default function Profile() {
       api.get("/iq/me/latest").then(({ data }) => setLatest(data?.iq ? data : null)),
       api.get("/iq/me/history").then(({ data }) => setHistory(data || [])),
       api.get("/me/properties").then(({ data }) => setProps(data || [])),
+      api.get("/reading/me/latest").then(({ data }) => setReading(data?.best_fit ? data : null)),
     ]).catch(() => {});
   };
 
@@ -124,6 +128,45 @@ export default function Profile() {
 
         {/* Right column */}
         <div className="space-y-6">
+          <div className="bg-white border border-ink p-6" data-testid="reading-card">
+            <div className="overline text-moss mb-2 flex items-center gap-2"><BookOpen size={12} /> Reading Style</div>
+            {reading ? (
+              <>
+                <div className="font-serif text-3xl leading-tight tracking-tight text-ink" data-testid="reading-best-label">{reading.label}</div>
+                <div className="text-graphite text-sm mt-2">
+                  {reading.best_fit === "natural"
+                    ? `${reading.free_wpm} WPM · ${(reading.free_comp * 100).toFixed(0)}% comp`
+                    : `${reading[`${reading.best_fit}_wpm`]} WPM · ${(reading[`${reading.best_fit}_comp`] * 100).toFixed(0)}% comp · CAWPM ${reading[`${reading.best_fit}_cawpm`]}`}
+                </div>
+                <div className="mt-4 pt-4 border-t border-rule grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <div className="overline mb-1">Free</div>
+                    <div className="font-serif text-lg">{reading.free_wpm}</div>
+                  </div>
+                  <div>
+                    <div className="overline mb-1">Chunks</div>
+                    <div className="font-serif text-lg">{reading.chunked_wpm}</div>
+                  </div>
+                  <div>
+                    <div className="overline mb-1">Pacer</div>
+                    <div className="font-serif text-lg">{reading.pacer_wpm}</div>
+                  </div>
+                </div>
+                <button onClick={() => setReadingOpen(true)} className="mt-5 w-full border border-ink px-4 py-2 uppercase tracking-widest text-xs hover:bg-ink hover:text-paper transition-colors flex items-center justify-center gap-2" data-testid="btn-retake-reading">
+                  <RotateCw size={12} /> Retake
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="font-serif text-lg leading-snug text-ink mb-2">Not measured yet.</p>
+                <p className="text-graphite text-sm mb-4">A 6-minute placement across three paces.</p>
+                <button onClick={() => setReadingOpen(true)} className="w-full bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-4 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-take-reading">
+                  Take the test
+                </button>
+              </>
+            )}
+          </div>
+
           <div className="bg-stone2 border border-rule p-6">
             <div className="overline text-moss mb-2">Fun fact</div>
             <p className="font-serif text-lg leading-snug text-ink">Cognitive testing sessions of 15–25 minutes yield the most reliable estimates.</p>
@@ -184,6 +227,7 @@ export default function Profile() {
       </div>
 
       <IQTest open={testOpen} onOpenChange={setTestOpen} onCompleted={() => load()} />
+      <ReadingTest open={readingOpen} onOpenChange={setReadingOpen} onCompleted={() => load()} />
     </div>
   );
 }
