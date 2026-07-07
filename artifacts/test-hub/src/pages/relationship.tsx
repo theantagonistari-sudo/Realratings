@@ -3,7 +3,7 @@ import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
-import { Heart } from 'lucide-react';
+import { Heart, ChevronLeft } from 'lucide-react';
 
 const QUESTIONS = [
   // Communication
@@ -46,6 +46,13 @@ export default function RelationshipTest() {
       setCurrentQ(q => q + 1);
     } else {
       setStep('results');
+    }
+  };
+
+  const handleBack = () => {
+    if (currentQ > 0) {
+      setCurrentQ(q => q - 1);
+      setAnswers(a => a.slice(0, -1));
     }
   };
 
@@ -108,6 +115,17 @@ export default function RelationshipTest() {
 
       {step === 'test' && (
         <div className="flex flex-col max-w-2xl mx-auto py-12 w-full">
+          <div className="flex justify-between items-center text-sm font-medium text-muted-foreground mb-3">
+            <span>Question {currentQ + 1} of {QUESTIONS.length}</span>
+            {currentQ > 0 && (
+              <button onClick={handleBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronLeft className="w-4 h-4" />Back
+              </button>
+            )}
+          </div>
+          <div className="w-full bg-secondary h-2 rounded-full mb-8 overflow-hidden">
+            <div className="bg-primary h-full transition-all duration-300 ease-out" style={{ width: `${(currentQ / QUESTIONS.length) * 100}%` }} />
+          </div>
            <div className="mb-12 text-center">
             <h2 className="font-serif text-3xl font-medium text-foreground leading-tight min-h-[100px] flex items-center justify-center">
               "{QUESTIONS[currentQ].q}"

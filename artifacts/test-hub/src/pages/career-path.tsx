@@ -3,7 +3,7 @@ import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Briefcase, Paintbrush, Monitor, HeartPulse, GraduationCap, Wrench } from 'lucide-react';
+import { Briefcase, Paintbrush, Monitor, HeartPulse, GraduationCap, Wrench, ChevronLeft } from 'lucide-react';
 
 const CLUSTERS = {
   Creative: {
@@ -124,14 +124,10 @@ const SHUFFLED_QUESTIONS = [...QUESTIONS].sort(() => Math.random() - 0.5);
 export default function CareerPath() {
   const [step, setStep] = useState<'intro' | 'test' | 'results'>('intro');
   const [currentQ, setCurrentQ] = useState(0);
-  const [scores, setScores] = useState<Record<string, number>>({
-    Creative: 0, Tech: 0, Business: 0, Health: 0, Edu: 0, Trades: 0
-  });
+  const [answers, setAnswers] = useState<number[]>([]);
 
   const handleAnswer = (value: number) => {
-    const cluster = SHUFFLED_QUESTIONS[currentQ].c;
-    setScores(prev => ({ ...prev, [cluster]: prev[cluster] + value }));
-    
+    setAnswers(a => [...a, value]);
     if (currentQ < SHUFFLED_QUESTIONS.length - 1) {
       setCurrentQ(q => q + 1);
     } else {
@@ -139,11 +135,24 @@ export default function CareerPath() {
     }
   };
 
+  const handleBack = () => {
+    if (currentQ > 0) {
+      setCurrentQ(q => q - 1);
+      setAnswers(a => a.slice(0, -1));
+    }
+  };
+
   const getResults = () => {
+    const scores: Record<string, number> = { Creative: 0, Tech: 0, Business: 0, Health: 0, Edu: 0, Trades: 0 };
+    answers.forEach((val, idx) => {
+      if (idx < SHUFFLED_QUESTIONS.length) {
+        const cluster = SHUFFLED_QUESTIONS[idx].c;
+        scores[cluster] = (scores[cluster] || 0) + val;
+      }
+    });
     const sorted = Object.entries(scores)
       .map(([key, value]) => ({ key, value, data: CLUSTERS[key as keyof typeof CLUSTERS] }))
       .sort((a, b) => b.value - a.value);
-    
     return sorted;
   };
 
@@ -187,8 +196,13 @@ export default function CareerPath() {
       {step === 'test' && (
         <div className="flex flex-col max-w-3xl mx-auto py-12 w-full">
           <div className="mb-12">
-            <div className="flex justify-between text-sm font-medium text-muted-foreground mb-2">
+            <div className="flex justify-between items-center text-sm font-medium text-muted-foreground mb-2">
               <span>Activity {currentQ + 1} of {SHUFFLED_QUESTIONS.length}</span>
+              {currentQ > 0 && (
+                <button onClick={handleBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                  <ChevronLeft className="w-4 h-4" />Back
+                </button>
+              )}
             </div>
             <div className="w-full bg-secondary h-2 rounded-full mb-12 overflow-hidden">
               <div 

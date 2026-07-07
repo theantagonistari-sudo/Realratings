@@ -3,6 +3,7 @@ import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { ChevronLeft } from 'lucide-react';
 
 const QUESTIONS = [
   // Verbal
@@ -41,11 +42,17 @@ export default function PsychometricTest() {
 
   const handleAnswer = (optionIdx: number) => {
     setAnswers([...answers, optionIdx]);
-    
     if (currentQ < QUESTIONS.length - 1) {
       setCurrentQ(q => q + 1);
     } else {
       setStep('results');
+    }
+  };
+
+  const handleBack = () => {
+    if (currentQ > 0) {
+      setCurrentQ(q => q - 1);
+      setAnswers(a => a.slice(0, -1));
     }
   };
 
@@ -118,9 +125,16 @@ export default function PsychometricTest() {
           <div className="mb-8">
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-medium text-muted-foreground">Question {currentQ + 1} of {QUESTIONS.length}</span>
-              <span className="text-xs font-semibold px-2 py-1 bg-secondary text-primary rounded-md uppercase tracking-wide">
-                {QUESTIONS[currentQ].domain} Reasoning
-              </span>
+              <div className="flex items-center gap-3">
+                {currentQ > 0 && (
+                  <button onClick={handleBack} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronLeft className="w-4 h-4" />Back
+                  </button>
+                )}
+                <span className="text-xs font-semibold px-2 py-1 bg-secondary text-primary rounded-md uppercase tracking-wide">
+                  {QUESTIONS[currentQ].domain} Reasoning
+                </span>
+              </div>
             </div>
             <div className="w-full bg-secondary h-2 rounded-full mb-8 overflow-hidden">
               <div 
