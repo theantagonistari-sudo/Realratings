@@ -182,9 +182,12 @@ export default function PsychometricTest() {
             </div>
           </div>
 
-          <div className="flex justify-center mt-8">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center items-center mt-8">
             <Button asChild size="lg" variant="outline" className="px-8">
               <Link href="/">Return to Dashboard</Link>
+            </Button>
+            <Button asChild size="lg" variant="premium" className="px-8">
+              <a href="https://smarteryou.live" target="_blank" rel="noopener noreferrer">Explore SmarterYou</a>
             </Button>
           </div>
         </div>

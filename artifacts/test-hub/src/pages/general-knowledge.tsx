@@ -155,9 +155,12 @@ export default function GeneralKnowledgeTest() {
              ))}
           </div>
 
-          <div className="flex justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
             <Button asChild size="lg" variant="outline">
               <Link href="/">Return to Dashboard</Link>
+            </Button>
+            <Button asChild size="lg" variant="premium">
+              <a href="https://smarteryou.live" target="_blank" rel="noopener noreferrer">Explore SmarterYou</a>
             </Button>
           </div>
         </div>

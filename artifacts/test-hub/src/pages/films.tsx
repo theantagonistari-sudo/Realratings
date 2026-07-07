@@ -107,13 +107,18 @@ export default function FilmsTest() {
 
       {step === 'results' && (
         <div className="flex flex-col items-center max-w-2xl mx-auto py-12 w-full animate-in fade-in">
-           <div className="text-6xl font-serif font-bold text-primary mb-2">{score}<span className="text-3xl text-muted-foreground">/25</span></div>
-           <h2 className="font-serif text-3xl font-bold text-foreground mb-4">{rank.title}</h2>
-           <p className="text-lg text-muted-foreground mb-10 text-center">{rank.desc}</p>
-           
-           <Button asChild size="lg" variant="outline">
+          <div className="text-6xl font-serif font-bold text-primary mb-2">{score}<span className="text-3xl text-muted-foreground">/25</span></div>
+          <h2 className="font-serif text-3xl font-bold text-foreground mb-4">{rank.title}</h2>
+          <p className="text-lg text-muted-foreground mb-10 text-center">{rank.desc}</p>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button asChild size="lg" variant="outline">
               <Link href="/">Return to Lobby</Link>
-           </Button>
+            </Button>
+            <Button asChild size="lg" variant="premium">
+              <a href="https://smarteryou.live" target="_blank" rel="noopener noreferrer">Explore SmarterYou</a>
+            </Button>
+          </div>
         </div>
       )}
     </TestWrapper>
