@@ -3,6 +3,7 @@ import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
+import { ChevronLeft } from 'lucide-react';
 
 const QUESTIONS = [
   // Openness
@@ -65,11 +66,17 @@ export default function PersonalityTest() {
   const handleAnswer = (value: number) => {
     const newAnswers = [...answers, value];
     setAnswers(newAnswers);
-    
     if (currentQ < SHUFFLED_QUESTIONS.length - 1) {
       setCurrentQ(q => q + 1);
     } else {
       setStep('results');
+    }
+  };
+
+  const handleBack = () => {
+    if (currentQ > 0) {
+      setCurrentQ(q => q - 1);
+      setAnswers(a => a.slice(0, -1));
     }
   };
 
@@ -148,8 +155,13 @@ export default function PersonalityTest() {
       {step === 'test' && (
         <div className="flex flex-col max-w-3xl mx-auto py-12 w-full">
           <div className="mb-12">
-            <div className="flex justify-between text-sm font-medium text-muted-foreground mb-2">
+            <div className="flex justify-between items-center text-sm font-medium text-muted-foreground mb-2">
               <span>Statement {currentQ + 1} of {SHUFFLED_QUESTIONS.length}</span>
+              {currentQ > 0 && (
+                <button onClick={handleBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                  <ChevronLeft className="w-4 h-4" />Back
+                </button>
+              )}
             </div>
             <div className="w-full bg-secondary h-2 rounded-full mb-12 overflow-hidden">
               <div 

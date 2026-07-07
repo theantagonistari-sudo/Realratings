@@ -2,173 +2,254 @@ import { useState } from 'react';
 import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
+import { BookOpen, FlaskConical, Newspaper, Feather, Lightbulb, ChevronLeft } from 'lucide-react';
+
+type PassageKey = 'fiction' | 'technical' | 'news' | 'poetry' | 'practical';
+type StyleKey = 'visual' | 'analytical' | 'empathetic' | 'speed';
+
+const PASSAGES: Record<PassageKey, { Icon: React.ElementType; label: string; tagline: string; title: string; text: string }> = {
+  fiction: {
+    Icon: BookOpen,
+    label: 'Literary Fiction',
+    tagline: 'A story excerpt — narrative, character-driven prose.',
+    title: 'Still House',
+    text: `The house had stood empty for eleven years before Clara came to inherit it. She found it much as her aunt had left it: dishes stacked in the draining rack as if someone had only just finished washing up, a half-knitted scarf draped over the arm of the wingback chair, three paperback novels face-down on the windowsill with their spines cracked like small surrenders.
+
+The garden beyond the kitchen window had reverted to something wilder — bindweed lacing through the rose bushes, a blackberry cane throwing long exploratory arms across the flagstone path. Clara stood in the doorway between the hallway and the sitting room for a very long time, her suitcase still in her hand, listening to the house settle around her.
+
+The floors made sounds. The radiators ticked. Somewhere behind the plaster, something moved — probably a mouse, her rational mind supplied, but she let herself believe for just a moment that the house was simply glad to have someone in it again. She set her suitcase down, crossed to the window, and looked out at the overgrown garden.
+
+She would fix the rose bushes first.`,
+  },
+  technical: {
+    Icon: FlaskConical,
+    label: 'Technical / Scientific',
+    tagline: 'An analytical explanation — structured, factual, concept-driven writing.',
+    title: 'How Large Language Models Work',
+    text: `Large language models are neural networks trained on vast corpora of text to predict the next token in a sequence. The core architecture, the Transformer, processes language by computing attention weights — for each word in a sentence, determining how much weight to assign every other word. This mechanism captures long-range dependencies: the relationship between a pronoun at the end of a paragraph and the noun it references at the beginning.
+
+Training occurs in two main phases. Pretraining exposes the model to hundreds of billions of tokens from internet sources, books, and code. The model learns statistical regularities in language — grammar, world knowledge, and reasoning patterns — by minimising prediction error. Fine-tuning then narrows the model's behaviour, using human feedback to align outputs toward helpfulness and safety.
+
+The result is a system that generates fluent, contextually coherent text at scale. What it cannot do is verify its outputs against reality; it has no mechanism for checking whether what it says is true, only whether it is statistically plausible given the training data. This distinction — between fluency and accuracy — is the central challenge of deploying such systems responsibly.`,
+  },
+  news: {
+    Icon: Newspaper,
+    label: 'News & Journalism',
+    tagline: 'An investigative feature — evidence-led, fact-based narrative writing.',
+    title: "The Reef That Shouldn't Exist",
+    text: `In the spring of 2019, a team of marine biologists working off the coast of New South Wales made an accidental discovery that would challenge decades of oceanographic assumption. While conducting a routine seagrass survey, they found coral formations growing at depths and temperatures previously considered lethal to reef ecosystems — alive and, apparently, thriving.
+
+The finding, published after eighteen months of verification, suggested that certain coral species possess a thermal plasticity that existing models had significantly underestimated. For conservationists watching the Great Barrier Reef lose roughly half its coral cover over three decades, the news arrived like a cautious exhale.
+
+It did not mean the reef was recovering. It did not reverse the chemistry of increasingly acidic seas. But it opened a question the scientific community had been reluctant to ask aloud: were there reef communities already adapting to warmer conditions, hiding in the ocean's depths — refugia the models had written off as impossible?
+
+"We are not announcing a solution," Dr Fiona Walsh told this paper. "We are announcing that the system is more complicated than we thought. That is both humbling and, in a small way, hopeful."`,
+  },
+  poetry: {
+    Icon: Feather,
+    label: 'Poetry',
+    tagline: 'A short poem — compressed, imagistic language designed to be felt.',
+    title: 'Still Life',
+    text: `The teapot on the counter
+holds last night's cooling tea —
+a small abandonment,
+a record of a moment
+when something more urgent
+called you from the kitchen.
+
+The coat on the hook
+still holds your shape,
+a little.
+The book on the nightstand
+knows the exact page
+where sleep found you.
+
+Every room is full
+of evidence of a life in progress:
+the pen left uncapped,
+the window cracked an inch,
+the unwashed glass catching
+what is left of the afternoon.
+
+Nothing here is finished.
+Nothing is supposed to be.
+This is not a house in disarray —
+this is a house being lived in,
+which is the whole point
+of having a house at all.`,
+  },
+  practical: {
+    Icon: Lightbulb,
+    label: 'Self-Help / Practical',
+    tagline: 'Actionable advice — direct, purposeful, structured for application.',
+    title: 'The Architecture of Habit',
+    text: `The most reliable way to build a new habit is to attach it to something you already do without thinking. Behavioural researchers call this habit stacking. If you want to start meditating each morning, don't try to carve a new slot from your schedule — decide that you will meditate immediately after making your first coffee. The existing behaviour acts as an anchor, a cue that requires no willpower to trigger.
+
+The second principle is to make the new behaviour easy at the start. The goal is not ten minutes of meditation on day one; it is thirty seconds. Research consistently shows that people who begin with small, manageable versions of a behaviour are far more likely to still be practising six months later than those who start with ambitious targets.
+
+The mechanism is simple: easy wins build identity. Each time you follow through, even briefly, you cast a vote for the belief that you are the kind of person who meditates. That self-concept, once formed, becomes the actual engine of change — not motivation, not discipline, not willpower. Identity.
+
+Start embarrassingly small. Attach it to something solid. Show up long enough to become someone who does the thing.`,
+  },
+};
 
 const QUESTIONS = [
   {
-    q: "When you pick up a new book, what do you do first?",
+    q: 'While reading, what captured your attention most?',
     options: [
-      { text: "Flip through to look at any diagrams, maps, or images", style: "visual" },
-      { text: "Read the table of contents and introduction carefully", style: "analytical" },
-      { text: "Read the back cover and feel for the emotional tone", style: "empathetic" },
-      { text: "Check page count and estimate how fast you can finish it", style: "speed" }
-    ]
+      { text: 'The descriptive language and the images it created', style: 'visual' },
+      { text: 'The structure and logical flow of the ideas', style: 'analytical' },
+      { text: 'The emotional undercurrent or human element', style: 'empathetic' },
+      { text: 'The key facts or central message', style: 'speed' },
+    ],
   },
   {
-    q: "How do you handle a word you don't recognize?",
+    q: 'How quickly did you feel settled into the text?',
     options: [
-      { text: "Look for context clues in surrounding sentences", style: "visual" },
-      { text: "Stop and look it up immediately", style: "analytical" },
-      { text: "Try to feel what it might mean from context", style: "empathetic" },
-      { text: "Skip it and keep reading", style: "speed" }
-    ]
+      { text: 'Once I could picture the scene or concept clearly', style: 'visual' },
+      { text: 'Once I understood the structure and purpose', style: 'analytical' },
+      { text: 'When I sensed the emotional register of the writing', style: 'empathetic' },
+      { text: 'Almost immediately — I picked up the main idea fast', style: 'speed' },
+    ],
   },
   {
-    q: "After reading a chapter, you most often remember...",
+    q: 'What would you most naturally share with someone about this passage?',
     options: [
-      { text: "The setting and visual descriptions", style: "visual" },
-      { text: "The key arguments or plot points in logical sequence", style: "analytical" },
-      { text: "How the characters felt and what motivated them", style: "empathetic" },
-      { text: "The general gist and maybe 2-3 key facts", style: "speed" }
-    ]
+      { text: 'A vivid phrase or image that stayed with you', style: 'visual' },
+      { text: 'The core argument or point it was making', style: 'analytical' },
+      { text: 'How it made you feel', style: 'empathetic' },
+      { text: 'The basic topic summarised in one sentence', style: 'speed' },
+    ],
   },
   {
-    q: "You prefer reading materials that are...",
+    q: 'How did you actually read the passage?',
     options: [
-      { text: "Richly descriptive with strong imagery", style: "visual" },
-      { text: "Well-structured with clear headings and evidence", style: "analytical" },
-      { text: "Character-driven with emotional depth", style: "empathetic" },
-      { text: "Concise and information-dense", style: "speed" }
-    ]
+      { text: 'Slowly, forming mental images as I went', style: 'visual' },
+      { text: 'Carefully, tracking the logic and structure', style: 'analytical' },
+      { text: 'Immersively, letting the mood carry me through it', style: 'empathetic' },
+      { text: 'Efficiently, moving fast and picking out essentials', style: 'speed' },
+    ],
   },
   {
-    q: "When you lose track of the story, you...",
+    q: 'When you finished, your first instinct was to...',
     options: [
-      { text: "Flip back to find the last vivid scene you remember", style: "visual" },
-      { text: "Find the last plot point you remember and re-read from there", style: "analytical" },
-      { text: "Try to recall the emotional state of the scene you last remember", style: "empathetic" },
-      { text: "Keep reading forward — you'll catch up", style: "speed" }
-    ]
+      { text: 'Replay the most vivid section in your mind', style: 'visual' },
+      { text: 'Review whether you understood the main point correctly', style: 'analytical' },
+      { text: 'Sit with how it made you feel', style: 'empathetic' },
+      { text: 'Move on — you had what you needed', style: 'speed' },
+    ],
   },
   {
-    q: "What makes you abandon a book?",
+    q: 'If interrupted mid-read, how would you have resumed?',
     options: [
-      { text: "Bland descriptions and lack of atmosphere", style: "visual" },
-      { text: "Logical inconsistencies or poor structure", style: "analytical" },
-      { text: "Unrelatable or flat characters", style: "empathetic" },
-      { text: "Slow pacing and too much filler", style: "speed" }
-    ]
+      { text: 'Scanned back to find the last scene I could picture', style: 'visual' },
+      { text: 'Found the last logical point and reread from there', style: 'analytical' },
+      { text: 'Reconnected with the mood I had when I stopped', style: 'empathetic' },
+      { text: 'Skimmed back to where the key information was', style: 'speed' },
+    ],
   },
   {
-    q: "How do you prefer to take notes while reading?",
+    q: 'After reading, you could most easily reconstruct...',
     options: [
-      { text: "Drawing mind maps or using color-coded highlighters", style: "visual" },
-      { text: "Writing structured summaries or margin notes", style: "analytical" },
-      { text: "Jotting down quotes that moved you", style: "empathetic" },
-      { text: "I rarely take notes, just skim for the main idea", style: "speed" }
-    ]
+      { text: 'The atmosphere — sensory details and setting', style: 'visual' },
+      { text: 'The logical sequence and main conclusions', style: 'analytical' },
+      { text: 'The emotional arc and what it felt like to read', style: 'empathetic' },
+      { text: 'The core message in a single sentence', style: 'speed' },
+    ],
   },
   {
-    q: "If a book is made into a movie, you usually think...",
+    q: 'What kind of remark would make you want to reread a section?',
     options: [
-      { text: "The cinematography didn't match how I pictured it", style: "visual" },
-      { text: "They left out too many important plot details", style: "analytical" },
-      { text: "The actors didn't capture the characters' internal struggles", style: "empathetic" },
-      { text: "The movie was faster to consume anyway", style: "speed" }
-    ]
+      { text: '"The writing in that part is so beautiful."', style: 'visual' },
+      { text: '"There\'s a logical inconsistency there."', style: 'analytical' },
+      { text: '"That part is genuinely moving."', style: 'empathetic' },
+      { text: '"You probably missed a key fact there."', style: 'speed' },
+    ],
   },
   {
-    q: "When reading non-fiction, you focus most on...",
+    q: 'What would have improved your reading experience?',
     options: [
-      { text: "The charts, graphs, and infographics", style: "visual" },
-      { text: "The thesis, methodology, and conclusions", style: "analytical" },
-      { text: "The human stories and case studies", style: "empathetic" },
-      { text: "The bullet points and executive summaries", style: "speed" }
-    ]
+      { text: 'More vivid sensory detail and richer language', style: 'visual' },
+      { text: 'A clearer structure or more explicit argument', style: 'analytical' },
+      { text: 'A deeper human or personal angle', style: 'empathetic' },
+      { text: 'A shorter, more condensed version', style: 'speed' },
+    ],
   },
   {
-    q: "Your ideal reading environment is...",
+    q: 'Where does your attention go naturally when encountering new text?',
     options: [
-      { text: "A visually beautiful space with perfect lighting", style: "visual" },
-      { text: "A quiet, distraction-free desk or study", style: "analytical" },
-      { text: "Cozy in bed or a comfortable armchair", style: "empathetic" },
-      { text: "On a commute or during a short break", style: "speed" }
-    ]
+      { text: 'The words themselves — how they paint a picture', style: 'visual' },
+      { text: 'The structure — what the text is trying to prove', style: 'analytical' },
+      { text: 'The human feeling behind the text', style: 'empathetic' },
+      { text: 'The bottom line, as fast as possible', style: 'speed' },
+    ],
   },
-  {
-    q: "When recommending a book to a friend, you say...",
-    options: [
-      { text: "'The world-building is incredibly immersive.'", style: "visual" },
-      { text: "'It really makes you think critically about the subject.'", style: "analytical" },
-      { text: "'It will absolutely break your heart.'", style: "empathetic" },
-      { text: "'It's a really quick, worthwhile read.'", style: "speed" }
-    ]
-  },
-  {
-    q: "You read fastest when...",
-    options: [
-      { text: "The imagery is flowing like a movie in my head", style: "visual" },
-      { text: "The arguments follow a logical, predictable pattern", style: "analytical" },
-      { text: "I am deeply invested in the characters' fates", style: "empathetic" },
-      { text: "I skim over the adjectives and focus on the verbs", style: "speed" }
-    ]
-  },
-  {
-    q: "What part of a textbook is most useful to you?",
-    options: [
-      { text: "The diagrams and sidebars", style: "visual" },
-      { text: "The chapter summaries and index", style: "analytical" },
-      { text: "The author's personal anecdotes", style: "empathetic" },
-      { text: "The bolded vocabulary words", style: "speed" }
-    ]
-  },
-  {
-    q: "How do you feel about poetry?",
-    options: [
-      { text: "Love how it paints pictures with words", style: "visual" },
-      { text: "Appreciate the structure, meter, and wordplay", style: "analytical" },
-      { text: "Connect with the raw emotion", style: "empathetic" },
-      { text: "Too vague; takes too much time to decode", style: "speed" }
-    ]
-  },
-  {
-    q: "When a character dies, you...",
-    options: [
-      { text: "Re-read the scene to visualize how it happened", style: "visual" },
-      { text: "Analyze how it impacts the rest of the plot", style: "analytical" },
-      { text: "Feel genuine grief for days", style: "empathetic" },
-      { text: "Acknowledge it and keep moving forward", style: "speed" }
-    ]
-  }
 ];
 
-const STYLE_DESCRIPTIONS = {
+const STYLE_INFO: Record<string, { title: string; desc: string; tips: string[] }> = {
   visual: {
-    title: "Visual Reader",
-    desc: "You experience books cinematically. Your mind automatically translates words into vivid imagery, scenes, and spaces. You likely have an excellent memory for descriptive passages and settings."
+    title: 'Visual Reader',
+    desc: 'You experience text cinematically. Your mind translates words into vivid imagery, scenes, and atmosphere automatically. You have strong recall for descriptive passages and are most engaged by writing that creates a world rather than simply conveying information.',
+    tips: [
+      'Read in quiet environments where you can visualise without distraction',
+      'Illustrated books and graphic narratives amplify your natural strength',
+      'Reading aloud slows you down and deepens immersion significantly',
+      'Sketching or mapping scenes as you read improves your retention',
+    ],
   },
   analytical: {
-    title: "Analytical Reader",
-    desc: "You read like a scholar. You break down texts systematically, hunting for logical consistency, structure, and evidence. You retain complex information with precision."
+    title: 'Analytical Reader',
+    desc: 'You read like a scholar. You naturally decompose text into its structural components, tracking arguments, evidence, and logical consistency. You retain information with precision and perform particularly well with non-fiction and technical material.',
+    tips: [
+      'Marginal notes and outlines feed your natural reading method',
+      'Active recall — closing the book and writing a summary — works powerfully for you',
+      'Your growth edge is emotional engagement; try fiction with complex inner lives',
+      'Structured note-taking systems like Cornell or Zettelkasten suit your style well',
+    ],
   },
   empathetic: {
-    title: "Empathetic Reader",
-    desc: "You read with your heart. You connect deeply with characters and retain emotional arcs more than plot details. Books are emotional experiences for you, not just data transfers."
+    title: 'Empathetic Reader',
+    desc: "You read with your heart. You connect deeply with the emotional undertow of what you read — characters' inner lives, the author's implicit feeling, the human stakes beneath the surface. Books are emotional experiences for you, not just information transfers.",
+    tips: [
+      'Book clubs and discussions amplify your natural gift for emotional insight',
+      'A reading journal captures your emotional responses — which are your real analysis',
+      'Biographies and narrative non-fiction are a natural sweet spot for your style',
+      'Challenge yourself with more structural or abstract texts to develop a complementary skill',
+    ],
   },
   speed: {
-    title: "Speed Reader",
-    desc: "You're efficiency-focused. You extract information rapidly and instinctively prioritize what matters. You rarely get bogged down in excessive description, preferring to cut to the core."
-  }
+    title: 'Efficiency Reader',
+    desc: 'You are goal-oriented and extract value from text rapidly. You instinctively separate signal from noise and rarely get bogged down in descriptive passages. You read broadly rather than deeply and perform best with information-dense, purposeful material.',
+    tips: [
+      'SQ3R (Survey, Question, Read, Recite, Review) maximises retention at pace',
+      'Slowing down deliberately for complex arguments is your most productive challenge',
+      'Skimming and strategic reading are genuine cognitive strengths — own them',
+      'Spaced repetition tools can significantly extend your retention over time',
+    ],
+  },
 };
 
 export default function ReadingStyle() {
-  const [step, setStep] = useState<'intro' | 'test' | 'results'>('intro');
+  const [step, setStep] = useState<'intro' | 'choose' | 'reading' | 'test' | 'results'>('intro');
+  const [selectedPassage, setSelectedPassage] = useState<PassageKey | null>(null);
   const [currentQ, setCurrentQ] = useState(0);
-  const [scores, setScores] = useState({ visual: 0, analytical: 0, empathetic: 0, speed: 0 });
+  const [answers, setAnswers] = useState<StyleKey[]>([]);
 
-  const handleAnswer = (style: string) => {
-    setScores(prev => ({ ...prev, [style]: prev[style as keyof typeof scores] + 1 }));
-    
+  const handleSelectPassage = (key: PassageKey) => {
+    setSelectedPassage(key);
+    setStep('reading');
+  };
+
+  const handleStartTest = () => {
+    setCurrentQ(0);
+    setAnswers([]);
+    setStep('test');
+  };
+
+  const handleAnswer = (style: StyleKey) => {
+    const newAnswers = [...answers, style];
+    setAnswers(newAnswers);
     if (currentQ < QUESTIONS.length - 1) {
       setCurrentQ(q => q + 1);
     } else {
@@ -176,54 +257,117 @@ export default function ReadingStyle() {
     }
   };
 
-  const getPrimaryStyle = () => {
-    let max = -1;
-    let primary = 'visual';
-    Object.entries(scores).forEach(([style, score]) => {
-      if (score > max) {
-        max = score;
-        primary = style;
+  const handleBack = () => {
+    if (step === 'test') {
+      if (currentQ > 0) {
+        setCurrentQ(q => q - 1);
+        setAnswers(a => a.slice(0, -1));
+      } else {
+        setStep('reading');
       }
-    });
-    return primary as keyof typeof STYLE_DESCRIPTIONS;
+    } else if (step === 'reading') {
+      setStep('choose');
+    } else if (step === 'choose') {
+      setStep('intro');
+    }
   };
 
-  const primaryStyle = getPrimaryStyle();
-  const info = STYLE_DESCRIPTIONS[primaryStyle];
+  const getStyleCounts = () => {
+    const counts = { visual: 0, analytical: 0, empathetic: 0, speed: 0 };
+    answers.forEach(s => { if (s in counts) counts[s as keyof typeof counts]++; });
+    return counts;
+  };
+
+  const styleCounts = getStyleCounts();
+  const primaryStyle = Object.entries(styleCounts).sort((a, b) => b[1] - a[1])[0][0];
+  const info = STYLE_INFO[primaryStyle];
 
   const radarData = [
-    { subject: 'Visual', A: scores.visual, fullMark: 15 },
-    { subject: 'Analytical', A: scores.analytical, fullMark: 15 },
-    { subject: 'Empathetic', A: scores.empathetic, fullMark: 15 },
-    { subject: 'Speed', A: scores.speed, fullMark: 15 },
+    { subject: 'Visual', A: styleCounts.visual, fullMark: QUESTIONS.length },
+    { subject: 'Analytical', A: styleCounts.analytical, fullMark: QUESTIONS.length },
+    { subject: 'Empathetic', A: styleCounts.empathetic, fullMark: QUESTIONS.length },
+    { subject: 'Efficiency', A: styleCounts.speed, fullMark: QUESTIONS.length },
   ];
 
+  const passage = selectedPassage ? PASSAGES[selectedPassage] : null;
+
+  // Map new steps to TestWrapper animation keys
+  const wrapperStep = step === 'results' ? 'results' : step === 'intro' ? 'intro' : step;
+
   return (
-    <TestWrapper step={step}>
+    <TestWrapper step={wrapperStep}>
       {step === 'intro' && (
         <div className="flex flex-col items-center justify-center text-center h-full max-w-2xl mx-auto py-12">
           <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mb-6">
-            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
+            <BookOpen className="w-8 h-8" />
           </div>
-          <h1 className="font-serif text-4xl font-bold text-foreground mb-4">Reading Style Assessment</h1>
+          <h1 className="font-serif text-4xl font-bold text-foreground mb-4">Reading Style</h1>
           <p className="text-lg text-muted-foreground mb-8">
-            Everyone processes written information differently. This assessment consists of 15 situational questions designed to map your natural reading patterns to one of four core archetypes.
+            Choose a type of reading material, read a short passage, then answer 10 questions about your experience. The results reveal whether you are a Visual, Analytical, Empathetic, or Efficiency reader.
           </p>
           <div className="flex gap-4 items-center bg-secondary/50 px-6 py-4 rounded-xl mb-8 border border-border/50">
             <div className="text-left">
-              <p className="text-sm text-muted-foreground uppercase font-semibold tracking-wider">Estimated Time</p>
-              <p className="font-medium">5 Minutes</p>
+              <p className="text-sm text-muted-foreground uppercase font-semibold tracking-wider">Format</p>
+              <p className="font-medium">Choose passage + 10 questions</p>
             </div>
             <div className="w-px h-8 bg-border/50"></div>
             <div className="text-left">
-              <p className="text-sm text-muted-foreground uppercase font-semibold tracking-wider">Format</p>
-              <p className="font-medium">15 Multiple Choice</p>
+              <p className="text-sm text-muted-foreground uppercase font-semibold tracking-wider">Estimated Time</p>
+              <p className="font-medium">5–7 minutes</p>
             </div>
           </div>
-          <Button size="lg" onClick={() => setStep('test')} variant="premium">
-            Begin Assessment
+          <Button size="lg" onClick={() => setStep('choose')} variant="premium">
+            Choose Your Passage
+          </Button>
+        </div>
+      )}
+
+      {step === 'choose' && (
+        <div className="flex flex-col max-w-3xl mx-auto py-8 w-full">
+          <button onClick={handleBack} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+            <ChevronLeft className="w-4 h-4" />Back
+          </button>
+          <h2 className="font-serif text-3xl font-bold text-foreground mb-2">Choose a passage type</h2>
+          <p className="text-muted-foreground mb-8">Select the type of reading material you'd like to be assessed on. Different formats reveal different facets of your reading style.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(Object.keys(PASSAGES) as PassageKey[]).map((key) => {
+              const p = PASSAGES[key];
+              const Icon = p.Icon;
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleSelectPassage(key)}
+                  className="text-left p-6 rounded-2xl border-2 border-border/50 bg-card hover:border-primary hover:bg-primary/5 transition-all group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-4 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-semibold text-foreground mb-1">{p.label}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{p.tagline}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {step === 'reading' && passage && (
+        <div className="flex flex-col max-w-2xl mx-auto py-8 w-full">
+          <button onClick={handleBack} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+            <ChevronLeft className="w-4 h-4" />Change passage
+          </button>
+          <div className="bg-primary/10 text-primary text-xs font-semibold uppercase tracking-widest mb-3 px-3 py-1 rounded-full w-fit">
+            {passage.label}
+          </div>
+          <h2 className="font-serif text-2xl font-bold text-foreground mb-6">{passage.title}</h2>
+          <div className="bg-card border border-border/50 rounded-2xl p-8 mb-8 shadow-sm">
+            <p className="text-foreground leading-8 whitespace-pre-line text-base font-serif">
+              {passage.text}
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground mb-6 text-center">Take your time. When you are ready, click below to begin the questions.</p>
+          <Button size="lg" onClick={handleStartTest} variant="premium" className="self-center px-10">
+            I have finished reading
           </Button>
         </div>
       )}
@@ -231,27 +375,29 @@ export default function ReadingStyle() {
       {step === 'test' && (
         <div className="flex flex-col max-w-2xl mx-auto py-12 w-full">
           <div className="mb-8">
-            <div className="flex justify-between text-sm font-medium text-muted-foreground mb-2">
+            <div className="flex justify-between items-center text-sm font-medium text-muted-foreground mb-3">
               <span>Question {currentQ + 1} of {QUESTIONS.length}</span>
-              <span>{Math.round(((currentQ) / QUESTIONS.length) * 100)}% Completed</span>
+              <button onClick={handleBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+                {currentQ === 0 ? 'Re-read passage' : 'Back'}
+              </button>
             </div>
             <div className="w-full bg-secondary h-2 rounded-full mb-8 overflow-hidden">
-              <div 
+              <div
                 className="bg-primary h-full transition-all duration-300 ease-out"
-                style={{ width: `${((currentQ) / QUESTIONS.length) * 100}%` }}
-              ></div>
+                style={{ width: `${(currentQ / QUESTIONS.length) * 100}%` }}
+              />
             </div>
             <h2 className="font-serif text-3xl font-semibold text-foreground leading-tight mb-8">
               {QUESTIONS[currentQ].q}
             </h2>
           </div>
-
           <div className="space-y-4">
             {QUESTIONS[currentQ].options.map((opt, idx) => (
               <button
                 key={idx}
-                onClick={() => handleAnswer(opt.style)}
-                className="w-full text-left p-6 rounded-xl border border-border bg-card hover:border-primary hover:bg-primary/5 transition-all text-lg font-medium shadow-sm hover:shadow-md"
+                onClick={() => handleAnswer(opt.style as StyleKey)}
+                className="w-full text-left p-6 rounded-xl border border-border bg-card hover:border-primary hover:bg-primary/5 transition-all text-base font-medium shadow-sm hover:shadow-md"
               >
                 {opt.text}
               </button>
@@ -263,19 +409,13 @@ export default function ReadingStyle() {
       {step === 'results' && (
         <div className="flex flex-col max-w-4xl mx-auto py-8 w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
           <div className="text-center mb-12">
-            <div className="inline-block px-4 py-1.5 rounded-full bg-accent/20 text-accent font-semibold text-sm mb-4 tracking-wider uppercase">
-              Your Primary Profile
-            </div>
-            <h2 className="font-serif text-5xl font-bold text-foreground mb-6">
-              {info.title}
-            </h2>
-            <p className="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-              {info.desc}
-            </p>
+            <p className="text-sm font-semibold uppercase tracking-widest text-primary mb-4">Your Reading Style</p>
+            <h2 className="font-serif text-5xl font-bold text-foreground mb-6">{info.title}</h2>
+            <p className="text-xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">{info.desc}</p>
           </div>
 
-          <div className="bg-card border border-border/50 rounded-3xl p-8 mb-12 shadow-lg flex flex-col md:flex-row items-center gap-8">
-            <div className="w-full md:w-1/2 h-[350px]">
+          <div className="bg-card border border-border/50 rounded-3xl p-8 mb-8 shadow-lg flex flex-col md:flex-row items-center gap-8">
+            <div className="w-full md:w-1/2 h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
                   <PolarGrid stroke="hsl(var(--border))" />
@@ -284,23 +424,32 @@ export default function ReadingStyle() {
                 </RadarChart>
               </ResponsiveContainer>
             </div>
-            <div className="w-full md:w-1/2 space-y-6">
-              <h3 className="font-serif text-2xl font-bold border-b border-border/50 pb-4">Dimension Breakdown</h3>
-              {radarData.sort((a, b) => b.A - a.A).map((item) => (
+            <div className="w-full md:w-1/2 space-y-4">
+              <h3 className="font-serif text-xl font-bold border-b border-border/50 pb-4">Style Breakdown</h3>
+              {radarData.map((item) => (
                 <div key={item.subject}>
-                  <div className="flex justify-between mb-2">
-                    <span className="font-medium text-foreground">{item.subject}</span>
-                    <span className="text-muted-foreground font-mono">{Math.round((item.A / 15) * 100)}%</span>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-medium text-foreground">{item.subject}</span>
+                    <span className="text-sm text-muted-foreground font-mono">{Math.round((item.A / QUESTIONS.length) * 100)}%</span>
                   </div>
                   <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-primary h-full rounded-full" 
-                      style={{ width: `${(item.A / 15) * 100}%` }}
-                    ></div>
+                    <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${(item.A / QUESTIONS.length) * 100}%` }} />
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="bg-card border border-border/50 rounded-3xl p-8 mb-10">
+            <h3 className="font-serif text-xl font-bold mb-4">Practical tips for your style</h3>
+            <ul className="space-y-3">
+              {info.tips.map((tip, i) => (
+                <li key={i} className="flex items-start gap-3 text-muted-foreground">
+                  <div className="w-5 h-5 rounded-full bg-primary/15 text-primary flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold">{i + 1}</div>
+                  {tip}
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">

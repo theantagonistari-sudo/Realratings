@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { TestWrapper } from '@/components/layout/TestWrapper';
 import { Button } from '@/components/ui/button';
 import { Link } from 'wouter';
-import { Film } from 'lucide-react';
+import { Film, ChevronLeft } from 'lucide-react';
 
 const QUESTIONS = [
   { q: "Who directed 'Schindler's List'?", opts: ["Francis Ford Coppola", "Steven Spielberg", "Martin Scorsese", "Stanley Kubrick"], a: 1 },
@@ -35,17 +35,25 @@ const QUESTIONS = [
 export default function FilmsTest() {
   const [step, setStep] = useState<'intro' | 'test' | 'results'>('intro');
   const [currentQ, setCurrentQ] = useState(0);
-  const [score, setScore] = useState(0);
+  const [answers, setAnswers] = useState<number[]>([]);
 
   const handleAnswer = (idx: number) => {
-    if (idx === QUESTIONS[currentQ].a) setScore(s => s + 1);
-    
+    setAnswers(a => [...a, idx]);
     if (currentQ < QUESTIONS.length - 1) {
       setCurrentQ(q => q + 1);
     } else {
       setStep('results');
     }
   };
+
+  const handleBack = () => {
+    if (currentQ > 0) {
+      setCurrentQ(q => q - 1);
+      setAnswers(a => a.slice(0, -1));
+    }
+  };
+
+  const score = answers.filter((a, i) => a === QUESTIONS[i]?.a).length;
 
   const getRank = (s: number) => {
     if (s >= 23) return { title: "Cinephile Extraordinaire", desc: "Cannes jury material. You know cinema." };
@@ -79,6 +87,11 @@ export default function FilmsTest() {
            <div className="mb-8">
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-medium text-muted-foreground">Scene {currentQ + 1} of {QUESTIONS.length}</span>
+              {currentQ > 0 && (
+                <button onClick={handleBack} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <ChevronLeft className="w-4 h-4" />Back
+                </button>
+              )}
             </div>
             <div className="w-full bg-secondary h-2 rounded-full mb-8 overflow-hidden">
               <div 
