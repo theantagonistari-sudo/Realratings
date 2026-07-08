@@ -168,8 +168,11 @@ export default function Profile() {
           </div>
 
           <div className="bg-stone2 border border-rule p-6">
-            <div className="overline text-moss mb-2">Fun fact</div>
-            <p className="font-serif text-lg leading-snug text-ink">Cognitive testing sessions of 15–25 minutes yield the most reliable estimates.</p>
+            <div className="overline text-moss mb-2">More assessments</div>
+            <p className="font-serif text-lg leading-snug text-ink mb-4">Big Five personality, cognitive analysis, career alignment, general knowledge & more.</p>
+            <Link to="/tests" className="inline-flex items-center gap-2 border border-ink px-4 py-2 uppercase tracking-widest text-xs hover:bg-ink hover:text-paper transition-colors" data-testid="btn-more-tests">
+              Browse tests →
+            </Link>
           </div>
           <div className="bg-white border border-rule p-6">
             <div className="overline mb-3">Account</div>

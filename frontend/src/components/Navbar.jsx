@@ -25,6 +25,7 @@ export default function Navbar() {
           <NavLink to="/properties?rental_type=rent" className={linkCls} data-testid="nav-rent">For Rent</NavLink>
           <NavLink to="/properties?rental_type=short_stay" className={linkCls} data-testid="nav-shortstay">Short Stay</NavLink>
           <NavLink to="/submit" className={linkCls} data-testid="nav-submit">Submit</NavLink>
+          <NavLink to="/tests" className={linkCls} data-testid="nav-tests">Tests</NavLink>
           <button onClick={() => setIqOpen(true)} className="overline text-graphite hover:text-ink transition-colors flex items-center gap-1.5" data-testid="nav-iq">
             <Brain size={12} /> Test IQ
           </button>
