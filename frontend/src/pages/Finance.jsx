@@ -55,6 +55,78 @@ const fmtDec = (v, cur = "USD") =>
 const monthKey = (isoDate) => (isoDate || "").slice(0, 7);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
+// ---------- Client-side classifier ----------
+// Turns a freeform line ("Uber 24", "+5200 salary", "Netflix 15.99") into a structured transaction.
+const CATEGORY_KEYWORDS = {
+  salary: ["salary", "payroll", "wage", "wages", "bonus", "paycheck"],
+  freelance: ["freelance", "gig", "contract", "consult", "invoice paid", "commission"],
+  investments: ["dividend", "interest received", "stock", "etf", "coin", "crypto", "brokerage", "yield", "portfolio"],
+  "other-income": ["refund", "cashback", "reimburs", "gift received", "deposit received", "rebate", "tax return"],
+  housing: ["rent", "mortgage", "loan payment", "hoa", "landlord", "lease"],
+  food: ["grocer", "restaurant", "cafe", "coffee", "starbucks", "whole foods", "trader joe", "market", "dinner", "lunch", "breakfast", "meal", "pizza", "burger", "chipotle", "mcdonald", "kfc", "doordash", "ubereats", "grubhub"],
+  transport: ["uber", "lyft", "taxi", "cab", "gas station", "petrol", "fuel", "train", "bus", "metro", "subway", "parking", "toll", "flight", "airfare", "airline", "car wash"],
+  utilities: ["electric", "water bill", "gas bill", "internet", "wifi", "phone bill", "cellular", "utility", "utilities", "comcast", "verizon", "at&t", "t-mobile"],
+  health: ["doctor", "pharmacy", "gym", "clinic", "hospital", "dental", "dentist", "medic", "cvs", "walgreens", "therapist"],
+  entertainment: ["netflix", "spotify", "hulu", "disney+", "hbo", "movie", "cinema", "concert", "game", "bar", "pub", "club", "steam", "playstation", "xbox"],
+  shopping: ["amazon", "apparel", "clothes", "clothing", "shoes", "shopping", "target", "walmart", "costco", "ikea", "zara", "h&m", "nike", "adidas"],
+  education: ["course", "book", "tuition", "school", "coursera", "udemy", "kindle", "audible", "class"],
+  other: [],
+};
+const INCOME_KEYWORDS = new Set([
+  ...CATEGORY_KEYWORDS.salary, ...CATEGORY_KEYWORDS.freelance,
+  ...CATEGORY_KEYWORDS["other-income"], "income", "received", "earned", "credited", "credit",
+]);
+const CATEGORY_TO_TYPE = Object.fromEntries(CATEGORIES.map(c => [c.id, c.type]));
+
+function classifyLine(raw) {
+  const line = (raw || "").trim();
+  if (!line) return null;
+
+  // Amount: prefer the last number in the line (most transaction formats: "note ... amount")
+  const numRe = /-?\+?\$?[\d]+(?:[,]\d{3})*(?:\.\d+)?/g;
+  const nums = line.match(numRe);
+  if (!nums || nums.length === 0) return null;
+  const rawAmount = nums[nums.length - 1];
+  const explicitPositive = rawAmount.startsWith("+");
+  const explicitNegative = rawAmount.startsWith("-");
+  const amount = Math.abs(parseFloat(rawAmount.replace(/[,+$]/g, "")));
+  if (!amount || Number.isNaN(amount)) return null;
+
+  // Strip the amount from the note
+  const note = line.replace(rawAmount, "").replace(/\s+/g, " ").trim() || "Transaction";
+  const lower = line.toLowerCase();
+
+  // Keyword-based category detection (longest match wins)
+  let matched = null;
+  let matchedLen = 0;
+  for (const [cat, kws] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const kw of kws) {
+      if (lower.includes(kw) && kw.length > matchedLen) { matched = cat; matchedLen = kw.length; }
+    }
+  }
+  let category = matched || "other";
+
+  // Type: explicit sign wins, then category default, then keyword sweep, else expense
+  let type;
+  if (explicitPositive) type = "income";
+  else if (explicitNegative) type = "expense";
+  else if (matched) type = CATEGORY_TO_TYPE[matched];
+  else if ([...INCOME_KEYWORDS].some(k => lower.includes(k))) type = "income";
+  else type = "expense";
+
+  // If type income and category still "other", nudge to "other-income"
+  if (type === "income" && category === "other") category = "other-income";
+
+  return {
+    type,
+    category,
+    amount: Math.round(amount * 100) / 100,
+    note: note.length > 40 ? note.slice(0, 40) : note,
+    date: new Date().toISOString().slice(0, 10),
+    confidence: matched ? "high" : "medium",
+  };
+}
+
 // ---------- Root ----------
 export default function Finance() {
   const [store, setStore] = useState(loadStore);
@@ -91,6 +163,7 @@ export default function Finance() {
         {tab === "import" && <ImportPanel store={store} update={update} />}
         {tab === "budgets" && <Budgets store={store} update={update} />}
         {tab === "networth" && <NetWorth store={store} update={update} />}
+        {tab === "balancesheet" && <BalanceSheet store={store} />}
         {tab === "calculators" && <Calculators cur={store.currency} />}
         {tab === "forecast" && <Forecast store={store} update={update} />}
       </section>
@@ -123,6 +196,7 @@ function TabBar({ tab, onChange }) {
     { id: "import",       label: "Import",       icon: Plus },
     { id: "budgets",      label: "Budgets",      icon: Target },
     { id: "networth",     label: "Net Worth",    icon: Landmark },
+    { id: "balancesheet", label: "Balance Sheet",icon: Receipt },
     { id: "calculators",  label: "Calculators",  icon: Landmark },
     { id: "forecast",     label: "Forecast",     icon: TrendingUp },
   ];
@@ -214,6 +288,8 @@ function Dashboard({ store, update }) {
 
   return (
     <div className="space-y-10" data-testid="dashboard-content">
+      <QuickAdd store={store} update={update} />
+
       {/* Financial Health verdict */}
       <div className={`p-6 md:p-8 rounded-sm text-paper flex items-center gap-6 flex-wrap ${health.verdict === "green" ? "bg-moss" : health.verdict === "amber" ? "bg-[#B57B4B]" : "bg-[#9B2C2C]"}`} data-testid="health-card">
         <div className={`w-14 h-14 rounded-full border-2 border-paper/40 flex items-center justify-center shrink-0`}>
@@ -336,17 +412,102 @@ function StatTile({ label, value, icon, sub, positive, negative, testid }) {
 function EmptyDashboard({ store, update }) {
   const [starterOpen, setStarterOpen] = useState(false);
   return (
-    <div className="text-center py-16 border border-dashed border-rule bg-white" data-testid="dashboard-empty">
-      <Wallet size={48} className="text-graphite/40 mb-6 mx-auto" />
-      <h2 className="font-serif text-4xl tracking-tighter text-ink mb-3">Start the ledger.</h2>
-      <p className="text-graphite max-w-md mx-auto mb-8">Add your first transaction. You can also set an opening balance so the dashboard reads real numbers immediately.</p>
-      <div className="flex gap-3 justify-center flex-wrap">
-        <button onClick={() => setStarterOpen(true)} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs" data-testid="btn-start-ledger">
-          + Add first transaction
-        </button>
-        <StartingBalance store={store} update={update} />
+    <div className="space-y-8" data-testid="dashboard-empty">
+      <QuickAdd store={store} update={update} />
+      <div className="text-center py-14 border border-dashed border-rule bg-white">
+        <Wallet size={48} className="text-graphite/40 mb-6 mx-auto" />
+        <h2 className="font-serif text-4xl tracking-tighter text-ink mb-3">Or start the ledger the classic way.</h2>
+        <p className="text-graphite max-w-md mx-auto mb-8">Prefer forms? Add your first transaction manually, or set an opening balance so the dashboard reads real numbers immediately.</p>
+        <div className="flex gap-3 justify-center flex-wrap">
+          <button onClick={() => setStarterOpen(true)} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs" data-testid="btn-start-ledger">
+            + Add first transaction
+          </button>
+          <StartingBalance store={store} update={update} />
+        </div>
+        {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { update(s => ({ transactions: [{ ...t, id: uid() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
       </div>
-      {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { update(s => ({ transactions: [{ ...t, id: uid() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
+    </div>
+  );
+}
+
+// ---------- Quick Add (freeform classifier) ----------
+function QuickAdd({ store, update }) {
+  const [text, setText] = useState("");
+  const [last, setLast] = useState(null); // { txn, id } for undo
+
+  const submit = (e) => {
+    e && e.preventDefault();
+    const t = classifyLine(text);
+    if (!t) { toast.error("Type something like 'Uber 24' or '+5200 salary'."); return; }
+    const id = uid();
+    const txn = { ...t, id };
+    update(s => ({ transactions: [txn, ...s.transactions] }));
+    setLast({ txn, id });
+    setText("");
+    const catLabel = (CAT_MAP[txn.category] || { label: txn.category }).label;
+    const prefix = txn.type === "income" ? "+" : "−";
+    toast.success(`${prefix}${fmtDec(txn.amount, store.currency)} · ${catLabel}`, {
+      description: t.confidence === "medium" ? "Categorised as best-guess. Edit if needed." : txn.note,
+      action: { label: "Undo", onClick: () => {
+        update(s => ({ transactions: s.transactions.filter(x => x.id !== id) }));
+        setLast(null);
+      }},
+    });
+  };
+
+  const editLast = (patch) => {
+    if (!last) return;
+    update(s => ({ transactions: s.transactions.map(x => x.id === last.id ? { ...x, ...patch } : x) }));
+    setLast(l => l ? { ...l, txn: { ...l.txn, ...patch } } : l);
+  };
+
+  const preview = classifyLine(text);
+  const catLabel = preview ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
+
+  return (
+    <div className="bg-white border border-ink rounded-sm p-5 md:p-6" data-testid="quick-add">
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles size={12} className="text-moss" />
+        <span className="overline text-moss">Quick add · type & press enter</span>
+      </div>
+      <form onSubmit={submit} className="flex gap-2 flex-wrap md:flex-nowrap items-center">
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Netflix 15.99"'
+          className="flex-1 min-w-0 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-3 font-serif text-xl md:text-2xl tracking-tight placeholder:text-graphite/50 placeholder:font-sans placeholder:text-base"
+          data-testid="quick-add-input"
+          autoComplete="off"
+        />
+        <button type="submit" disabled={!text.trim()} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs disabled:opacity-40" data-testid="quick-add-submit">
+          Add
+        </button>
+      </form>
+      {preview && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-graphite flex-wrap" data-testid="quick-add-preview">
+          <span className="overline">Will save as</span>
+          <span className={`px-2 py-0.5 rounded-sm ${preview.type === "income" ? "bg-moss/10 text-moss" : "bg-[#9B2C2C]/10 text-[#9B2C2C]"}`}>
+            {preview.type === "income" ? "Income" : "Expense"}
+          </span>
+          <span className="text-ink">{catLabel}</span>
+          <span className="text-graphite">·</span>
+          <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.amount, store.currency)}</span>
+          {preview.confidence === "medium" && <span className="text-graphite italic">· best-guess category, edit after adding</span>}
+        </div>
+      )}
+      {last && (
+        <div className="mt-4 flex items-center gap-3 text-xs flex-wrap" data-testid="quick-add-last">
+          <span className="overline text-graphite">Last added — reclassify:</span>
+          <select
+            value={last.txn.category}
+            onChange={e => editLast({ category: e.target.value, type: CATEGORY_TO_TYPE[e.target.value] })}
+            className="border border-rule bg-white px-2 py-1 text-xs"
+            data-testid="quick-add-reclassify"
+          >
+            {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label} ({c.type})</option>)}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
@@ -1105,6 +1266,254 @@ function NetWorth({ store, update }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ---------- Balance Sheet (monthly snapshot) ----------
+function BalanceSheet({ store }) {
+  const cur = store.currency;
+
+  // Build the list of months available: from earliest txn to current, plus "as of today"
+  const months = useMemo(() => {
+    const set = new Set([thisMonth()]);
+    store.transactions.forEach(t => { if (t.date) set.add(monthKey(t.date)); });
+    const arr = Array.from(set).filter(Boolean).sort();
+    return arr;
+  }, [store.transactions]);
+
+  const [asOf, setAsOf] = useState(thisMonth());
+  const endOfMonth = useMemo(() => {
+    const [y, m] = asOf.split("-").map(Number);
+    return new Date(y, m, 0).toISOString().slice(0, 10);
+  }, [asOf]);
+
+  const report = useMemo(() => {
+    const upTo = (store.transactions || []).filter(t => t.date && t.date <= endOfMonth);
+    const monthTxns = upTo.filter(t => monthKey(t.date) === asOf);
+
+    // Income statement (period = selected month)
+    const incomeByCat = {}, expenseByCat = {};
+    monthTxns.forEach(t => {
+      const bucket = t.type === "income" ? incomeByCat : expenseByCat;
+      bucket[t.category] = (bucket[t.category] || 0) + (t.amount || 0);
+    });
+    const totalIncome = Object.values(incomeByCat).reduce((a, b) => a + b, 0);
+    const totalExpense = Object.values(expenseByCat).reduce((a, b) => a + b, 0);
+    const netIncome = totalIncome - totalExpense;
+
+    // Balance sheet as of endOfMonth
+    // Cash = starting balance + all txns up to endOfMonth
+    const cash = (store.settings?.startingBalance || 0) +
+      upTo.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
+
+    // Assets/debts snapshots come from store (not time-indexed) — treat as current standing
+    const otherAssets = (store.assets || []).map(a => ({ name: a.name, value: a.value || 0 }));
+    const totalOtherAssets = otherAssets.reduce((a, x) => a + x.value, 0);
+    const totalAssets = Math.max(0, cash) + totalOtherAssets;
+    const overdraft = Math.min(0, cash); // negative cash treated as liability
+
+    const debts = (store.debts || []).map(d => ({ name: d.name, value: d.value || 0, rate: d.rate || 0 }));
+    const totalDebts = debts.reduce((a, x) => a + x.value, 0) + Math.abs(overdraft);
+    const equity = totalAssets - totalDebts;
+
+    return {
+      incomeByCat, expenseByCat, totalIncome, totalExpense, netIncome,
+      cash, otherAssets, totalOtherAssets, totalAssets, debts, totalDebts, equity, overdraft,
+    };
+  }, [store, asOf, endOfMonth]);
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = asOf.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleString("default", { month: "long", year: "numeric" });
+  }, [asOf]);
+
+  const exportCsv = () => {
+    const rows = [
+      ["Section", "Item", "Amount"],
+      ["Balance Sheet — as of", endOfMonth, ""],
+      ["Assets", "Cash on hand", Math.max(0, report.cash).toFixed(2)],
+      ...report.otherAssets.map(a => ["Assets", a.name, a.value.toFixed(2)]),
+      ["", "Total Assets", report.totalAssets.toFixed(2)],
+      ["", "", ""],
+      ...(report.overdraft < 0 ? [["Liabilities", "Cash overdraft", Math.abs(report.overdraft).toFixed(2)]] : []),
+      ...report.debts.map(d => ["Liabilities", `${d.name}${d.rate ? ` (${d.rate}% APR)` : ""}`, d.value.toFixed(2)]),
+      ["", "Total Liabilities", report.totalDebts.toFixed(2)],
+      ["", "", ""],
+      ["", "Owner's Equity", report.equity.toFixed(2)],
+      ["", "", ""],
+      [`Income Statement — ${monthLabel}`, "", ""],
+      ...Object.entries(report.incomeByCat).map(([k, v]) => ["Income", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
+      ["", "Total Income", report.totalIncome.toFixed(2)],
+      ...Object.entries(report.expenseByCat).map(([k, v]) => ["Expenses", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
+      ["", "Total Expenses", report.totalExpense.toFixed(2)],
+      ["", "Net Income", report.netIncome.toFixed(2)],
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `balance-sheet-${asOf}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-8" data-testid="balancesheet-content">
+      {/* Header */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <div className="overline text-moss mb-2 flex items-center gap-2"><Landmark size={12} /> Financial statement</div>
+          <h2 className="font-serif text-3xl md:text-4xl tracking-tight">Balance sheet.</h2>
+          <p className="text-graphite mt-2 max-w-2xl">A month-end snapshot of what you own, what you owe, and the equity in between — plus the income statement for the period.</p>
+        </div>
+        <div className="flex gap-3 items-center flex-wrap">
+          <label className="inline-flex items-center gap-2 border border-ink rounded-sm px-3 py-2">
+            <CalIcon size={12} className="text-graphite" />
+            <span className="overline">As of</span>
+            <select value={asOf} onChange={e => setAsOf(e.target.value)} className="bg-transparent focus:outline-none font-serif text-base" data-testid="bs-month">
+              {months.map(m => {
+                const [y, mm] = m.split("-").map(Number);
+                const lbl = new Date(y, mm - 1, 1).toLocaleString("default", { month: "short", year: "numeric" });
+                return <option key={m} value={m}>{lbl}</option>;
+              })}
+            </select>
+          </label>
+          <button onClick={exportCsv} className="inline-flex items-center gap-2 border border-ink px-4 py-2 text-xs uppercase tracking-widest hover:bg-ink hover:text-paper transition-colors rounded-sm" data-testid="bs-export">
+            <Download size={12} /> Export CSV
+          </button>
+        </div>
+      </div>
+
+      {/* Statement paper */}
+      <div className="bg-white border border-ink rounded-sm p-6 md:p-10">
+        <div className="text-center mb-8 pb-6 border-b border-rule">
+          <div className="overline text-graphite mb-2">Real Ratings Personal Finance</div>
+          <div className="font-serif text-3xl md:text-4xl tracking-tighter">Balance Sheet</div>
+          <div className="text-graphite mt-1 text-sm">As of {new Date(endOfMonth).toLocaleDateString("default", { year: "numeric", month: "long", day: "numeric" })}</div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-10">
+          {/* Assets */}
+          <div>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
+              <div className="overline text-ink">Assets</div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            <StatementRow label="Cash on hand" value={Math.max(0, report.cash)} cur={cur} testid="bs-cash" />
+            {report.otherAssets.length > 0 && (
+              <div className="mt-4">
+                <div className="overline text-graphite mb-2">Other assets</div>
+                {report.otherAssets.map((a, i) => <StatementRow key={i} label={a.name} value={a.value} cur={cur} indent />)}
+              </div>
+            )}
+            {report.otherAssets.length === 0 && (
+              <p className="text-graphite italic text-sm mt-4">Add investments & property in Net Worth to see them here.</p>
+            )}
+            <StatementRow label="Total Assets" value={report.totalAssets} cur={cur} total testid="bs-total-assets" />
+          </div>
+
+          {/* Liabilities & Equity */}
+          <div>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
+              <div className="overline text-ink">Liabilities</div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            {report.overdraft < 0 && (
+              <StatementRow label="Cash overdraft" value={Math.abs(report.overdraft)} cur={cur} negative />
+            )}
+            {report.debts.map((d, i) => (
+              <StatementRow key={i} label={`${d.name}${d.rate ? ` · ${d.rate}% APR` : ""}`} value={d.value} cur={cur} indent negative />
+            ))}
+            {report.debts.length === 0 && report.overdraft >= 0 && (
+              <p className="text-graphite italic text-sm">No liabilities recorded. Debt-free is a beautiful thing.</p>
+            )}
+            <StatementRow label="Total Liabilities" value={report.totalDebts} cur={cur} total negative testid="bs-total-liab" />
+
+            <div className="mt-8 pt-4 border-t border-ink">
+              <div className="overline text-ink mb-4">Owner's Equity</div>
+              <div className={`p-4 rounded-sm ${report.equity >= 0 ? "bg-moss text-paper" : "bg-[#9B2C2C] text-paper"}`} data-testid="bs-equity">
+                <div className="overline text-paper/70">Net worth</div>
+                <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none">{fmt(report.equity, cur)}</div>
+                <div className="text-paper/70 text-xs mt-2">{report.equity >= 0 ? "Assets exceed liabilities." : "Liabilities exceed assets — focus on reducing debt."}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Accounting identity */}
+        <div className="mt-10 pt-6 border-t border-rule flex items-center justify-center gap-3 text-xs text-graphite flex-wrap">
+          <span className="font-serif text-base text-ink">{fmt(report.totalAssets, cur)}</span>
+          <span>Assets</span>
+          <span>=</span>
+          <span className="font-serif text-base text-ink">{fmt(report.totalDebts, cur)}</span>
+          <span>Liabilities</span>
+          <span>+</span>
+          <span className="font-serif text-base text-ink">{fmt(report.equity, cur)}</span>
+          <span>Equity</span>
+        </div>
+      </div>
+
+      {/* Income Statement */}
+      <div className="bg-white border border-ink rounded-sm p-6 md:p-10" data-testid="bs-income-statement">
+        <div className="text-center mb-8 pb-6 border-b border-rule">
+          <div className="overline text-graphite mb-2">For the period</div>
+          <div className="font-serif text-3xl md:text-4xl tracking-tighter">Income Statement</div>
+          <div className="text-graphite mt-1 text-sm">{monthLabel}</div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-10">
+          <div>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
+              <div className="overline text-moss">Income</div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            {Object.entries(report.incomeByCat).length === 0 && <p className="text-graphite italic text-sm">No income this month.</p>}
+            {Object.entries(report.incomeByCat).map(([k, v]) => (
+              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent />
+            ))}
+            <StatementRow label="Total Income" value={report.totalIncome} cur={cur} total testid="bs-total-income" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
+              <div className="overline text-[#9B2C2C]">Expenses</div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            {Object.entries(report.expenseByCat).length === 0 && <p className="text-graphite italic text-sm">No expenses this month.</p>}
+            {Object.entries(report.expenseByCat).map(([k, v]) => (
+              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent negative />
+            ))}
+            <StatementRow label="Total Expenses" value={report.totalExpense} cur={cur} total negative testid="bs-total-expense" />
+          </div>
+        </div>
+
+        <div className={`mt-10 p-6 rounded-sm text-paper ${report.netIncome >= 0 ? "bg-moss" : "bg-[#9B2C2C]"}`} data-testid="bs-net-income">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <div className="overline text-paper/70">Net income for {monthLabel}</div>
+              <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none mt-1">
+                {report.netIncome >= 0 ? "" : "−"}{fmt(Math.abs(report.netIncome), cur)}
+              </div>
+            </div>
+            <div className="text-paper/80 text-sm max-w-xs">
+              {report.netIncome >= 0
+                ? "You saved money this month. Consider moving the surplus into investments."
+                : "You spent more than you earned. Revisit budgets in the Budgets tab."}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatementRow({ label, value, cur, indent, negative, total, testid }) {
+  return (
+    <div className={`flex items-baseline justify-between py-2 ${total ? "mt-4 pt-3 border-t-2 border-ink" : "border-b border-rule"} ${indent ? "pl-4" : ""}`} data-testid={testid}>
+      <span className={`${total ? "overline text-ink" : "text-sm text-graphite"}`}>{label}</span>
+      <span className={`font-serif tabular-nums ${total ? "text-2xl" : "text-base"} ${negative ? "text-[#9B2C2C]" : total ? "text-ink" : "text-ink"}`}>
+        {negative && value > 0 ? "−" : ""}{fmt(value, cur)}
+      </span>
     </div>
   );
 }
