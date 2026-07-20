@@ -16,6 +16,7 @@ import { toast } from "sonner";
 // ---------- Constants ----------
 const STORAGE_KEY = "rr_finance_v1";
 const CURRENCIES = { USD: "$", EUR: "€", GBP: "£", NGN: "₦" };
+const API = process.env.REACT_APP_BACKEND_URL + "/api";
 
 const CATEGORIES = [
   { id: "salary", label: "Salary", type: "income", color: "#2C4033" },
@@ -40,7 +41,7 @@ function loadStore() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { currency: "USD", transactions: [], budgets: {}, recurring: [], settings: { startingBalance: 0 } };
+  return { currency: "USD", transactions: [], budgets: {}, recurring: [], assets: [], debts: [], settings: { startingBalance: 0 } };
 }
 function saveStore(s) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
@@ -87,7 +88,9 @@ export default function Finance() {
       <section className="max-w-6xl mx-auto px-6 md:px-12 py-10">
         {tab === "dashboard" && <Dashboard store={store} update={update} />}
         {tab === "transactions" && <Transactions store={store} update={update} />}
+        {tab === "import" && <ImportPanel store={store} update={update} />}
         {tab === "budgets" && <Budgets store={store} update={update} />}
+        {tab === "networth" && <NetWorth store={store} update={update} />}
         {tab === "calculators" && <Calculators cur={store.currency} />}
         {tab === "forecast" && <Forecast store={store} update={update} />}
       </section>
@@ -117,7 +120,9 @@ function TabBar({ tab, onChange }) {
   const tabs = [
     { id: "dashboard",    label: "Dashboard",    icon: Sparkles },
     { id: "transactions", label: "Transactions", icon: Receipt },
+    { id: "import",       label: "Import",       icon: Plus },
     { id: "budgets",      label: "Budgets",      icon: Target },
+    { id: "networth",     label: "Net Worth",    icon: Landmark },
     { id: "calculators",  label: "Calculators",  icon: Landmark },
     { id: "forecast",     label: "Forecast",     icon: TrendingUp },
   ];
@@ -156,14 +161,6 @@ function Dashboard({ store, update }) {
   }, [store, mk]);
 
   const spendingByCat = useMemo(() => {
-    const map = {};
-    store.transactions
-      .filter(t => monthKey(t.date) === mk && t.type === "expense")
-      .forEach(t => { map[t.category] = (map[t.category] || 0) + t.amount; });
-    return Object.entries(map)
-      .map(([id, value]) => ({ name: CAT_MAP[id]?.label || id, value, color: CAT_MAP[id]?.color || "#4A4A4A" }))
-      .sort((a, b) => b.value - a.value);
-  }, [store, mk]);
 
   const last6 = useMemo(() => {
     const arr = [];
@@ -186,6 +183,23 @@ function Dashboard({ store, update }) {
 
   return (
     <div className="space-y-10" data-testid="dashboard-content">
+      {/* Financial Health verdict */}
+      <div className={`p-6 md:p-8 rounded-sm text-paper flex items-center gap-6 flex-wrap ${health.verdict === "green" ? "bg-moss" : health.verdict === "amber" ? "bg-[#B57B4B]" : "bg-[#9B2C2C]"}`} data-testid="health-card">
+        <div className={`w-14 h-14 rounded-full border-2 border-paper/40 flex items-center justify-center shrink-0`}>
+          {health.verdict === "green" ? <TrendingUp size={24} /> : health.verdict === "amber" ? <Target size={24} /> : <TrendingDown size={24} />}
+        </div>
+        <div className="flex-1 min-w-[220px]">
+          <div className="overline text-paper/70 mb-1">Financial health</div>
+          <div className="font-serif text-3xl md:text-4xl tracking-tighter leading-none" data-testid="health-label">{health.label}</div>
+          <div className="text-paper/80 text-sm mt-2">{health.reason}</div>
+        </div>
+        <div className="text-right">
+          <div className="overline text-paper/70">Net worth</div>
+          <div className="font-serif text-3xl md:text-4xl tabular-nums leading-none" data-testid="health-networth">{fmt(health.netWorth, cur)}</div>
+          <div className="text-xs text-paper/70 mt-2">Assets {fmt(health.totalAssets, cur)} · Debts −{fmt(health.totalDebts, cur)}</div>
+        </div>
+      </div>
+
       {/* Hero Stats — Bento */}
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-12 md:col-span-6 bg-ink text-paper p-8 rounded-sm">
@@ -839,6 +853,225 @@ function Forecast({ store, update }) {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Import (paste text or upload screenshot) ----------
+function ImportPanel({ store, update }) {
+  const cur = store.currency;
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState([]);
+  const [selected, setSelected] = useState({});
+
+  const runText = async () => {
+    if (!text.trim()) return toast.error("Paste some text first.");
+    setLoading(true); setPreview([]);
+    try {
+      const res = await fetch(`${API}/finance/parse-text`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setPreview(data.transactions || []);
+      const sel = {}; (data.transactions || []).forEach((_, i) => { sel[i] = true; });
+      setSelected(sel);
+      toast.success(`Found ${data.count} transaction${data.count === 1 ? "" : "s"}.`);
+    } catch (e) {
+      toast.error("Parse failed. Try again or paste less text.");
+    } finally { setLoading(false); }
+  };
+
+  const runImage = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    setLoading(true); setPreview([]);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch(`${API}/finance/parse-image`, { method: "POST", credentials: "include", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setPreview(data.transactions || []);
+      const sel = {}; (data.transactions || []).forEach((_, i) => { sel[i] = true; });
+      setSelected(sel);
+      toast.success(`Found ${data.count} transaction${data.count === 1 ? "" : "s"}.`);
+    } catch (err) {
+      toast.error("Couldn't read the image. Try a clearer photo.");
+    } finally { setLoading(false); }
+  };
+
+  const commit = () => {
+    const chosen = preview.filter((_, i) => selected[i]).map(t => ({ ...t, id: uid() }));
+    if (chosen.length === 0) return toast.error("Select at least one row.");
+    update(s => ({ transactions: [...chosen, ...s.transactions] }));
+    setPreview([]); setText(""); setSelected({});
+    toast.success(`Added ${chosen.length} transaction${chosen.length === 1 ? "" : "s"}.`);
+  };
+
+  return (
+    <div className="space-y-8" data-testid="import-content">
+      <div>
+        <div className="overline text-moss mb-2 flex items-center gap-2"><Sparkles size={12} /> AI-assisted</div>
+        <h2 className="font-serif text-3xl md:text-4xl tracking-tight">Import a batch.</h2>
+        <p className="text-graphite mt-2 max-w-2xl">Paste any statement, receipt, or list — or drop in a photo of one. Our reader turns it into clean, categorised transactions you can review before adding.</p>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white border border-rule p-6 rounded-sm">
+          <div className="overline text-moss mb-2">Method 1</div>
+          <h3 className="font-serif text-2xl tracking-tight mb-4">Paste text</h3>
+          <textarea value={text} onChange={e => setText(e.target.value)} rows={9}
+            placeholder="e.g.\nRent  1,400  02 Jan\nWhole Foods  84.20  03 Jan\nSalary 5,200  05 Jan  (payroll)"
+            className="w-full bg-transparent border border-rule focus:outline-none focus:border-ink p-3 resize-none text-sm font-mono"
+            data-testid="import-text" />
+          <button onClick={runText} disabled={loading} className="mt-4 bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs disabled:opacity-50" data-testid="btn-parse-text">
+            {loading ? "Reading…" : "Extract transactions"}
+          </button>
+        </div>
+
+        <div className="bg-ink text-paper p-6 rounded-sm">
+          <div className="overline text-paper/70 mb-2">Method 2</div>
+          <h3 className="font-serif text-2xl tracking-tight mb-4">Upload a screenshot</h3>
+          <p className="text-paper/70 text-sm mb-5">Bank statement PDF-screenshot, receipt photo, expense app export — anything readable.</p>
+          <label className="cursor-pointer inline-flex items-center gap-2 bg-paper text-ink hover:bg-stone2 transition-colors rounded-sm px-6 py-3 uppercase tracking-widest text-xs" data-testid="btn-parse-image">
+            {loading ? "Reading…" : "Choose file"}
+            <input type="file" accept="image/*" hidden onChange={runImage} disabled={loading} />
+          </label>
+          <p className="text-xs text-paper/50 mt-4">Image is processed and discarded — never stored on Real Ratings' servers.</p>
+        </div>
+      </div>
+
+      {preview.length > 0 && (
+        <div className="bg-white border border-ink rounded-sm" data-testid="import-preview">
+          <div className="flex items-center justify-between p-4 border-b border-rule">
+            <div>
+              <div className="overline text-moss">Preview · {preview.length} extracted</div>
+              <div className="font-serif text-xl">Review before adding.</div>
+            </div>
+            <button onClick={commit} className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-commit-import">
+              Add selected
+            </button>
+          </div>
+          <div>
+            {preview.map((t, i) => (
+              <label key={i} className={`flex items-center gap-4 border-b border-rule last:border-b-0 p-4 cursor-pointer ${selected[i] ? "" : "opacity-40"}`}>
+                <input type="checkbox" checked={!!selected[i]} onChange={e => setSelected(s => ({ ...s, [i]: e.target.checked }))} />
+                <div className={`w-2 h-2 rounded-full ${t.type === "income" ? "bg-moss" : "bg-[#9B2C2C]"}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex gap-3 items-center">
+                    <span className="font-serif text-lg">{(CAT_MAP[t.category] || {}).label || t.category}</span>
+                    <span className="text-xs text-graphite">{t.date}</span>
+                  </div>
+                  {t.note && <div className="text-sm text-graphite truncate">{t.note}</div>}
+                </div>
+                <div className={`font-serif text-xl tabular-nums ${t.type === "income" ? "text-moss" : "text-[#9B2C2C]"}`}>
+                  {t.type === "income" ? "+" : "−"}{fmtDec(t.amount, cur)}
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Net Worth (assets & debts) ----------
+function NetWorth({ store, update }) {
+  const cur = store.currency;
+  const [aName, setAName] = useState(""); const [aVal, setAVal] = useState("");
+  const [dName, setDName] = useState(""); const [dVal, setDVal] = useState(""); const [dRate, setDRate] = useState("");
+
+  const totalAssets = (store.assets || []).reduce((a, x) => a + (x.value || 0), 0);
+  const totalDebts  = (store.debts  || []).reduce((a, x) => a + (x.value || 0), 0);
+  const txnBalance  = store.settings.startingBalance +
+    store.transactions.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
+  const netWorth    = txnBalance + totalAssets - totalDebts;
+  const isGreen     = netWorth >= 0 && totalDebts <= totalAssets * 0.4;
+
+  const addAsset = (e) => {
+    e.preventDefault();
+    const v = parseFloat(aVal);
+    if (!aName || !v || v <= 0) return toast.error("Fill both fields.");
+    update(s => ({ assets: [...(s.assets || []), { id: uid(), name: aName, value: v }] }));
+    setAName(""); setAVal(""); toast.success("Asset added.");
+  };
+  const addDebt = (e) => {
+    e.preventDefault();
+    const v = parseFloat(dVal);
+    if (!dName || !v || v <= 0) return toast.error("Fill both fields.");
+    update(s => ({ debts: [...(s.debts || []), { id: uid(), name: dName, value: v, rate: parseFloat(dRate) || 0 }] }));
+    setDName(""); setDVal(""); setDRate(""); toast.success("Debt added.");
+  };
+  const rmAsset = (id) => update(s => ({ assets: (s.assets || []).filter(x => x.id !== id) }));
+  const rmDebt = (id) => update(s => ({ debts: (s.debts || []).filter(x => x.id !== id) }));
+
+  return (
+    <div className="space-y-10" data-testid="networth-content">
+      <div>
+        <h2 className="font-serif text-3xl tracking-tight">Net worth.</h2>
+        <p className="text-graphite mt-2">Assets (investments, savings, property) minus liabilities (loans, cards).</p>
+      </div>
+
+      <div className={`p-8 rounded-sm ${isGreen ? "bg-moss text-paper" : "bg-[#9B2C2C] text-paper"}`} data-testid="networth-hero">
+        <div className="overline text-paper/70 mb-2">Estimated net worth · {isGreen ? "In the Green" : "In the Red"}</div>
+        <div className="font-serif text-6xl md:text-7xl tracking-tighter leading-none tabular-nums">{fmt(netWorth, cur)}</div>
+        <div className="mt-4 flex gap-8 text-sm text-paper/80 flex-wrap">
+          <span>Cash on hand: {fmt(txnBalance, cur)}</span>
+          <span>Assets: {fmt(totalAssets, cur)}</span>
+          <span>Debts: −{fmt(totalDebts, cur)}</span>
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white border border-rule p-6 rounded-sm">
+          <div className="overline text-moss mb-2 flex items-center gap-2"><PiggyBank size={12} /> Assets</div>
+          <div className="font-serif text-3xl tabular-nums mb-4">{fmt(totalAssets, cur)}</div>
+          <form onSubmit={addAsset} className="space-y-2 mb-4">
+            <input value={aName} onChange={e => setAName(e.target.value)} placeholder="Name (e.g. ETF portfolio)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="asset-name" />
+            <div className="flex gap-2">
+              <input type="number" step="0.01" value={aVal} onChange={e => setAVal(e.target.value)} placeholder="Value" className="flex-1 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-lg" data-testid="asset-value" />
+              <button type="submit" className="bg-ink text-paper px-4 py-2 uppercase tracking-widest text-xs" data-testid="btn-add-asset">Add</button>
+            </div>
+          </form>
+          <div className="divide-y divide-rule">
+            {(store.assets || []).map(a => (
+              <div key={a.id} className="flex items-center gap-2 py-2" data-testid={`asset-${a.id}`}>
+                <div className="flex-1 truncate">{a.name}</div>
+                <div className="font-serif text-lg tabular-nums text-moss">{fmt(a.value, cur)}</div>
+                <button onClick={() => rmAsset(a.id)} className="p-1 hover:bg-stone2"><Trash2 size={12} className="text-graphite" /></button>
+              </div>
+            ))}
+            {(store.assets || []).length === 0 && <div className="text-graphite italic text-sm py-4 text-center">Nothing yet.</div>}
+          </div>
+        </div>
+
+        <div className="bg-white border border-rule p-6 rounded-sm">
+          <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Debts</div>
+          <div className="font-serif text-3xl tabular-nums mb-4">−{fmt(totalDebts, cur)}</div>
+          <form onSubmit={addDebt} className="space-y-2 mb-4">
+            <input value={dName} onChange={e => setDName(e.target.value)} placeholder="Name (e.g. Mortgage)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="debt-name" />
+            <div className="flex gap-2">
+              <input type="number" step="0.01" value={dVal} onChange={e => setDVal(e.target.value)} placeholder="Balance" className="flex-1 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-lg" data-testid="debt-value" />
+              <input type="number" step="0.01" value={dRate} onChange={e => setDRate(e.target.value)} placeholder="APR %" className="w-20 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-lg" data-testid="debt-rate" />
+              <button type="submit" className="bg-ink text-paper px-4 py-2 uppercase tracking-widest text-xs" data-testid="btn-add-debt">Add</button>
+            </div>
+          </form>
+          <div className="divide-y divide-rule">
+            {(store.debts || []).map(d => (
+              <div key={d.id} className="flex items-center gap-2 py-2" data-testid={`debt-${d.id}`}>
+                <div className="flex-1 truncate">{d.name} {d.rate ? <span className="text-xs text-graphite">· {d.rate}% APR</span> : null}</div>
+                <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(d.value, cur)}</div>
+                <button onClick={() => rmDebt(d.id)} className="p-1 hover:bg-stone2"><Trash2 size={12} className="text-graphite" /></button>
+              </div>
+            ))}
+            {(store.debts || []).length === 0 && <div className="text-graphite italic text-sm py-4 text-center">Nothing yet.</div>}
+          </div>
         </div>
       </div>
     </div>

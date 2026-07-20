@@ -745,6 +745,106 @@ async def delete_subscriber(sub_id: str, user=Depends(require_admin)):
     return {"ok": True}
 
 
+# ----- Finance import (LLM parse) -----
+FINANCE_CATEGORIES = [
+    "salary", "freelance", "investments", "other-income",
+    "housing", "food", "transport", "utilities", "health",
+    "entertainment", "shopping", "education", "other",
+]
+
+FINANCE_SYSTEM_PROMPT = f"""You extract personal-finance transactions from raw text or an image (receipt / bank statement / spending list).
+
+Return ONLY a valid JSON array. Each element must have EXACTLY these fields:
+- date: ISO date string YYYY-MM-DD (today's date {{today}} if not specified)
+- type: "income" or "expense"
+- category: one of {FINANCE_CATEGORIES}
+- amount: positive number in the user's local currency (never negative — use `type` for sign)
+- note: short human-readable description (<= 40 chars, no PII)
+
+Rules:
+- If a debt payment, categorise as "housing" (loan/mortgage) or "other" (credit card / personal loan). Payments are EXPENSES.
+- If an investment purchase, category = "investments", type = "expense".
+- If interest/dividend received, category = "investments", type = "income".
+- Skip informational-only rows (totals, subtotals, headers).
+- If truly nothing found, return [].
+Return ONLY the JSON array. No prose, no code fence."""
+
+
+class FinanceParseTextIn(BaseModel):
+    text: str
+
+
+@api_router.post("/finance/parse-text")
+async def parse_finance_text(payload: FinanceParseTextIn, user=Depends(require_user)):
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Empty text")
+    return await _run_finance_parse(text=payload.text.strip())
+
+
+@api_router.post("/finance/parse-image")
+async def parse_finance_image(file: UploadFile = File(...), user=Depends(require_user)):
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Max 8 MB")
+    import base64 as _b64
+    return await _run_finance_parse(image_b64=_b64.b64encode(data).decode("ascii"), mime=file.content_type or "image/jpeg")
+
+
+async def _run_finance_parse(text: str = None, image_b64: str = None, mime: str = None):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, TextDelta, StreamDone
+    import json as _json
+    today = datetime.now(timezone.utc).date().isoformat()
+    system = FINANCE_SYSTEM_PROMPT.replace("{today}", today)
+    chat = LlmChat(
+        api_key=EMERGENT_KEY,
+        session_id=f"finance-parse-{uuid.uuid4().hex[:8]}",
+        system_message=system,
+    ).with_model("gemini", "gemini-3-flash-preview")
+
+    user_text = "Extract transactions from the attached image." if image_b64 else f"Extract transactions from this text:\n\n{text}"
+    file_contents = [ImageContent(image_base64=image_b64)] if image_b64 else None
+
+    full = ""
+    try:
+        async for ev in chat.stream_message(UserMessage(text=user_text, file_contents=file_contents)):
+            if isinstance(ev, TextDelta):
+                full += ev.content
+            elif isinstance(ev, StreamDone):
+                break
+    except Exception as e:
+        logger.error(f"LLM parse failed: {e}")
+        raise HTTPException(status_code=502, detail="Parser unavailable")
+
+    # Sanitize response — strip code fences if any
+    cleaned = full.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
+    try:
+        arr = _json.loads(cleaned)
+        if not isinstance(arr, list):
+            arr = []
+    except Exception:
+        logger.warning(f"LLM returned non-JSON: {full[:400]}")
+        arr = []
+    # Normalise
+    out = []
+    for item in arr[:100]:
+        try:
+            out.append({
+                "date": str(item.get("date") or today)[:10],
+                "type": "income" if item.get("type") == "income" else "expense",
+                "category": item.get("category") if item.get("category") in FINANCE_CATEGORIES else "other",
+                "amount": max(0.0, float(item.get("amount", 0))),
+                "note": str(item.get("note", ""))[:80],
+            })
+        except Exception:
+            continue
+    return {"transactions": out, "count": len(out)}
+
+
 # ----- Site Config -----
 @api_router.get("/site/config")
 async def site_config():
