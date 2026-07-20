@@ -62,7 +62,7 @@ const thisMonth = () => new Date().toISOString().slice(0, 7);
 //  - "expense"        → transaction (type=expense) in Expenses
 //  - "income"         → transaction (type=income) in Incomes
 //  - "invest-return"  → transaction (type=income, category=investments) in Investment returns
-//  - "loan"           → NOT a transaction; adds to store.debts (liability)
+//  - "debt"           → NOT a transaction; adds to store.debts (balance to be repaid)
 const CATEGORY_KEYWORDS = {
   salary: ["salary", "payroll", "wage", "wages", "bonus", "paycheck"],
   freelance: ["freelance", "gig", "contract", "consult", "invoice paid", "commission"],
@@ -73,7 +73,7 @@ const CATEGORY_KEYWORDS = {
     "distribution received", "coupon received", "investment return", "returns received",
   ],
   "other-income": ["refund", "cashback", "reimburs", "gift received", "deposit received", "rebate", "tax return"],
-  housing: ["rent", "mortgage", "loan payment", "hoa", "landlord", "lease"],
+  housing: ["rent", "mortgage payment", "hoa", "landlord", "lease"],
   food: ["grocer", "restaurant", "cafe", "coffee", "starbucks", "whole foods", "trader joe", "market", "dinner", "lunch", "breakfast", "meal", "pizza", "burger", "chipotle", "mcdonald", "kfc", "doordash", "ubereats", "grubhub"],
   transport: ["uber", "lyft", "taxi", "cab", "gas station", "petrol", "fuel", "train", "bus", "metro", "subway", "parking", "toll", "flight", "airfare", "airline", "car wash"],
   utilities: ["electric", "water bill", "gas bill", "internet", "wifi", "phone bill", "cellular", "utility", "utilities", "comcast", "verizon", "at&t", "t-mobile"],
@@ -83,14 +83,13 @@ const CATEGORY_KEYWORDS = {
   education: ["course", "book", "tuition", "school", "coursera", "udemy", "kindle", "audible", "class"],
   other: [],
 };
-// Explicit loan/liability keywords — trigger the LOAN bucket (adds to store.debts)
-const LOAN_KEYWORDS = [
+// Debt/liability keywords — trigger the DEBT bucket (adds to store.debts, no interest tracking)
+const DEBT_KEYWORDS = [
+  "debt", "owe", "owed", "i owe", "iou",
   "loan received", "took loan", "took a loan", "took out loan", "borrowed", "new loan",
-  "mortgage taken", "credit line opened", "new credit card",
-  "mortgage balance", "loan balance", "credit card balance", "line of credit",
-  "student loan balance", "car loan balance",
-  // simple triggers users type
-  "loan:", "loan ", "mortgage:", "mortgage ",
+  "credit card balance", "line of credit",
+  "student loan balance", "car loan balance", "mortgage balance", "loan balance",
+  "loan:", "loan ", "mortgage:",
 ];
 const INCOME_KEYWORDS = new Set([
   ...CATEGORY_KEYWORDS.salary, ...CATEGORY_KEYWORDS.freelance,
@@ -121,18 +120,18 @@ function classifyLine(raw) {
   if (!amount || Number.isNaN(amount)) return null;
   const note = line.replace(rawAmount, "").replace(/\s+/g, " ").trim() || "Transaction";
 
-  // ── LOAN bucket (adds to store.debts, not a transaction)
-  if (LOAN_KEYWORDS.some(k => lower.includes(k))) {
-    // Extract APR if present (e.g. "car loan 25000 5%" or "mortgage 300000 3.5% APR")
+  // ── DEBT bucket (adds to store.debts, not a transaction — no interest tracking)
+  if (DEBT_KEYWORDS.some(k => lower.includes(k))) {
+    // Optionally parse APR if user types one, but it's not required — just informational
     const aprMatch = line.match(/(\d+(?:\.\d+)?)\s*%/);
     const rate = aprMatch ? parseFloat(aprMatch[1]) : 0;
     // Balance = the largest number that ISN'T the APR
     const withoutApr = aprMatch ? line.replace(aprMatch[0], " ") : line;
     const balNums = (withoutApr.match(numRe) || []).map(n => Math.abs(parseFloat(n.replace(/[,+$]/g, ""))));
     const balance = balNums.length ? Math.max(...balNums) : amount;
-    const cleanName = withoutApr.replace(new RegExp(balance.toString(), "g"), "").replace(/(apr|loan|balance|owed)/gi, "").replace(/\s+/g, " ").trim() || "Loan";
+    const cleanName = withoutApr.replace(new RegExp(balance.toString(), "g"), "").replace(/(apr|loan|debt|balance|owed|owe|i)/gi, "").replace(/\s+/g, " ").trim() || "Debt";
     return {
-      bucket: "loan",
+      bucket: "debt",
       name: cleanName.length > 40 ? cleanName.slice(0, 40) : cleanName,
       value: Math.round(balance * 100) / 100,
       rate,
@@ -218,8 +217,8 @@ export default function Finance() {
         {tab === "transactions" && <Transactions store={store} update={update} initialFilter={txnFilter} />}
         {tab === "import" && <ImportPanel store={store} update={update} />}
         {tab === "budgets" && <Budgets store={store} update={update} />}
-        {tab === "networth" && <NetWorth store={store} update={update} />}
-        {tab === "balancesheet" && <BalanceSheet store={store} jumpTo={jumpTo} />}
+        {tab === "networth" && <NetWorth store={store} update={update} jumpTo={jumpTo} />}
+        {tab === "balancesheet" && <BalanceSheet store={store} jumpTo={jumpTo} update={update} />}
         {tab === "calculators" && <Calculators cur={store.currency} />}
         {tab === "forecast" && <Forecast store={store} update={update} />}
       </section>
@@ -510,14 +509,14 @@ function QuickAdd({ store, update }) {
     const t = classifyLine(text);
     if (!t) { toast.error("Type something like 'Uber 24', '+5200 salary', 'Dividend 200', or 'Car loan 25000 5%'."); return; }
 
-    // LOAN bucket → adds a liability to store.debts, not a transaction
-    if (t.bucket === "loan") {
+    // DEBT bucket → adds a balance to store.debts, not a transaction (no interest tracked)
+    if (t.bucket === "debt") {
       const id = uid();
       const debt = { id, name: t.name, value: t.value, rate: t.rate || 0 };
       update(s => ({ debts: [...(s.debts || []), debt] }));
       setText("");
-      toast.success(`Loan added · ${fmtDec(t.value, store.currency)}${t.rate ? ` @ ${t.rate}% APR` : ""}`, {
-        description: `"${t.name}" · view under Loans in the Balance Sheet / Net Worth tab`,
+      toast.success(`Debt added · ${fmtDec(t.value, store.currency)}`, {
+        description: `"${t.name}" · view under Debts in the Balance Sheet / Net Worth tab. Pay it down manually.`,
         action: { label: "Undo", onClick: () => {
           update(s => ({ debts: (s.debts || []).filter(x => x.id !== id) }));
         }},
@@ -551,12 +550,12 @@ function QuickAdd({ store, update }) {
   };
 
   const preview = classifyLine(text);
-  const catLabel = preview && preview.bucket !== "loan" ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
+  const catLabel = preview && preview.bucket !== "debt" ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
   const bucketLabel = preview
-    ? (preview.bucket === "loan" ? "Loan" : preview.bucket === "invest-return" ? "Investment return" : preview.type === "income" ? "Income" : "Expense")
+    ? (preview.bucket === "debt" ? "Debt" : preview.bucket === "invest-return" ? "Investment return" : preview.type === "income" ? "Income" : "Expense")
     : null;
   const bucketColor = preview
-    ? (preview.bucket === "loan"
+    ? (preview.bucket === "debt"
         ? "bg-[#9B2C2C]/10 text-[#9B2C2C]"
         : preview.type === "income"
           ? "bg-moss/10 text-moss"
@@ -567,13 +566,13 @@ function QuickAdd({ store, update }) {
     <div className="bg-white border border-ink rounded-sm p-5 md:p-6" data-testid="quick-add">
       <div className="flex items-center gap-2 mb-3">
         <Sparkles size={12} className="text-moss" />
-        <span className="overline text-moss">Quick add · expenses · incomes · loans · investment returns</span>
+        <span className="overline text-moss">Quick add · expenses · incomes · debts · investment returns</span>
       </div>
       <form onSubmit={submit} className="flex gap-2 flex-wrap md:flex-nowrap items-center">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Dividend 200"   ·   "Car loan 25000 5%"'
+          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Dividend 200"   ·   "Debt car loan 25000"'
           className="flex-1 min-w-0 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-3 font-serif text-xl md:text-2xl tracking-tight placeholder:text-graphite/50 placeholder:font-sans placeholder:text-base"
           data-testid="quick-add-input"
           autoComplete="off"
@@ -588,12 +587,12 @@ function QuickAdd({ store, update }) {
           <span className={`px-2 py-0.5 rounded-sm ${bucketColor}`} data-testid="quick-add-bucket">
             {bucketLabel}
           </span>
-          {preview.bucket === "loan" ? (
+          {preview.bucket === "debt" ? (
             <>
               <span className="text-ink">{preview.name}</span>
               <span className="text-graphite">·</span>
               <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.value, store.currency)}</span>
-              {preview.rate ? <span className="text-graphite">@ {preview.rate}% APR</span> : null}
+              <span className="text-graphite italic">· pay down manually in Balance Sheet</span>
             </>
           ) : (
             <>
@@ -721,7 +720,7 @@ function Transactions({ store, update, initialFilter }) {
       {open && <TxnDialog
         onClose={() => setOpen(false)}
         onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }}
-        onSaveLoan={(d) => { update(s => ({ debts: [...(s.debts || []), { ...d, id: uid() }] })); setOpen(false); toast.success("Loan added."); }}
+        onSaveDebt={(d) => { update(s => ({ debts: [...(s.debts || []), { ...d, id: uid() }] })); setOpen(false); toast.success("Debt added."); }}
         cur={cur}
       />}
       {editing && (
@@ -777,9 +776,9 @@ function TxnRow({ txn, cur, onDelete, onEdit }) {
   );
 }
 
-function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
+function TxnDialog({ onClose, onSave, cur, initial, onSaveDebt }) {
   const isEdit = !!initial;
-  // Bucket: expense | income | invest-return | loan
+  // Bucket: expense | income | invest-return | debt
   const initialBucket = initial
     ? (initial.type === "income" ? (initial.category === INVEST_CAT ? "invest-return" : "income") : "expense")
     : "expense";
@@ -788,9 +787,8 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
   const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : "");
   const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState(initial?.note || "");
-  // Loan-specific fields (only visible when bucket === "loan")
-  const [loanName, setLoanName] = useState("");
-  const [loanRate, setLoanRate] = useState("");
+  // Debt-specific field (visible when bucket === "debt")
+  const [debtName, setDebtName] = useState("");
 
   // When bucket changes, snap category to a valid one for that bucket
   const changeBucket = (b) => {
@@ -804,10 +802,10 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
     expense: { label: "Expense", sign: "−", color: "bg-[#9B2C2C] text-paper", filter: c => c.type === "expense" },
     income: { label: "Income", sign: "+", color: "bg-moss text-paper", filter: c => c.type === "income" && c.id !== INVEST_CAT },
     "invest-return": { label: "Investment return", sign: "+", color: "bg-moss text-paper", filter: c => c.id === INVEST_CAT },
-    loan: { label: "Loan", sign: "", color: "bg-[#9B2C2C] text-paper" },
+    debt: { label: "Debt", sign: "", color: "bg-[#9B2C2C] text-paper" },
   };
 
-  const filtered = bucket === "loan" ? [] : CATEGORIES.filter(bucketMeta[bucket].filter);
+  const filtered = bucket === "debt" ? [] : CATEGORIES.filter(bucketMeta[bucket].filter);
 
   // If invest-return picked, force category to investments
   useEffect(() => {
@@ -819,10 +817,10 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
     const a = parseFloat(amount);
     if (!a || a <= 0) return toast.error("Amount must be greater than 0.");
 
-    if (bucket === "loan") {
-      if (!loanName.trim()) return toast.error("Give the loan a name.");
-      if (!onSaveLoan) return toast.error("Loans can only be added from the main ledger.");
-      onSaveLoan({ name: loanName.trim(), value: a, rate: parseFloat(loanRate) || 0 });
+    if (bucket === "debt") {
+      if (!debtName.trim()) return toast.error("Give the debt a name.");
+      if (!onSaveDebt) return toast.error("Debts can only be added from the main ledger.");
+      onSaveDebt({ name: debtName.trim(), value: a, rate: 0 });
       return;
     }
     const type = bucket === "expense" ? "expense" : "income";
@@ -840,9 +838,9 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
         <form onSubmit={submit} className="p-6 space-y-5">
           {/* 4-bucket picker */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-1 border border-rule p-1">
-            {(isEdit && initialBucket === "loan" ? ["loan"]
+            {(isEdit && initialBucket === "debt" ? ["debt"]
               : isEdit ? ["expense", "income", "invest-return"]
-              : ["expense", "income", "invest-return", "loan"]
+              : ["expense", "income", "invest-return", "debt"]
             ).map(b => (
               <button key={b} type="button" onClick={() => changeBucket(b)}
                 className={`py-2 uppercase tracking-widest text-[10px] transition-colors ${bucket === b ? bucketMeta[b].color : "text-graphite hover:text-ink"}`}
@@ -852,12 +850,12 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
             ))}
           </div>
 
-          {bucket === "loan" ? (
+          {bucket === "debt" ? (
             <>
               <div>
-                <label className="overline block mb-2">Loan name</label>
-                <input value={loanName} onChange={e => setLoanName(e.target.value)} placeholder="e.g. Car loan, Mortgage, Credit card" autoFocus
-                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="loan-name" />
+                <label className="overline block mb-2">Debt name</label>
+                <input value={debtName} onChange={e => setDebtName(e.target.value)} placeholder="e.g. Car, Credit card, IOU to Mom" autoFocus
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="debt-name-dialog" />
               </div>
               <div>
                 <label className="overline block mb-2">Balance owed ({CURRENCIES[cur]})</label>
@@ -865,12 +863,7 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
                   className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-4xl tracking-tighter"
                   data-testid="input-amount" placeholder="0.00" />
               </div>
-              <div>
-                <label className="overline block mb-2">APR % (optional)</label>
-                <input type="number" step="0.01" value={loanRate} onChange={e => setLoanRate(e.target.value)}
-                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-2xl tracking-tight"
-                  data-testid="loan-rate" placeholder="0" />
-              </div>
+              <p className="text-xs text-graphite italic">No interest tracked here — this is just a balance to repay. Use the Loan Calculator in the Calculators tab to model interest.</p>
             </>
           ) : (
             <>
@@ -905,7 +898,7 @@ function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
           <div className="flex justify-end gap-3 pt-2 border-t border-rule">
             <button type="button" onClick={onClose} className="border border-ink px-5 py-2.5 uppercase tracking-widest text-xs">Cancel</button>
             <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-save-txn">
-              {isEdit ? "Save changes" : bucket === "loan" ? "Add loan" : "Add"}
+              {isEdit ? "Save changes" : bucket === "debt" ? "Add debt" : "Add"}
             </button>
           </div>
         </form>
@@ -1039,24 +1032,66 @@ function LoanCalc({ cur }) {
   const [P, setP] = useState(300000);
   const [rate, setRate] = useState(6.5);
   const [years, setYears] = useState(30);
+  const [extra, setExtra] = useState(0);
   const r = (parseFloat(rate) || 0) / 100 / 12;
   const n = (parseFloat(years) || 0) * 12;
   const p = parseFloat(P) || 0;
+  const x = parseFloat(extra) || 0;
   const monthly = r === 0 ? p / n : (p * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
   const total = monthly * n;
   const interest = total - p;
+
+  // Payoff with extra monthly payment — amortization walk
+  let payoffMonths = n;
+  let interestSavedTotal = 0;
+  if (x > 0 && r > 0 && isFinite(monthly)) {
+    let bal = p;
+    let months = 0;
+    let paidInterest = 0;
+    const monthlyPlus = monthly + x;
+    while (bal > 0 && months < n * 2) {
+      const int = bal * r;
+      const principal = Math.min(bal, monthlyPlus - int);
+      if (principal <= 0) break;
+      bal -= principal;
+      paidInterest += int;
+      months++;
+    }
+    payoffMonths = months;
+    interestSavedTotal = interest - paidInterest;
+  }
+  const yearsSaved = Math.max(0, (n - payoffMonths) / 12);
+
   return (
-    <CalcShell title="Loan · Mortgage" subtitle="Monthly repayment." testid="calc-loan"
+    <CalcShell title="Loan · Mortgage · Interest" subtitle="Monthly repayment." testid="calc-loan"
       result={
         <div>
           <div className="overline">Monthly payment</div>
           <div className="font-serif text-4xl tabular-nums text-ink" data-testid="loan-monthly">{isFinite(monthly) ? fmt(Math.round(monthly), cur) : "—"}</div>
-          <div className="text-xs text-graphite mt-2">Total paid {fmt(Math.round(total), cur)} · Interest {fmt(Math.round(interest), cur)}</div>
+          <div className="text-xs text-graphite mt-2">
+            Total paid <span className="text-ink tabular-nums">{fmt(Math.round(total), cur)}</span> ·
+            Interest <span className="text-[#9B2C2C] tabular-nums">{fmt(Math.round(interest), cur)}</span>
+          </div>
+          {x > 0 && (
+            <div className="mt-4 pt-3 border-t border-rule" data-testid="loan-extra-summary">
+              <div className="overline text-moss mb-1">With +{fmt(x, cur)}/mo extra</div>
+              <div className="text-sm text-ink">
+                Paid off in <span className="tabular-nums font-serif text-lg">{Math.floor(payoffMonths / 12)}y {payoffMonths % 12}m</span>
+                {yearsSaved > 0 && <span className="text-moss"> · saves {yearsSaved.toFixed(1)} years</span>}
+              </div>
+              {interestSavedTotal > 0 && (
+                <div className="text-xs text-graphite mt-1">
+                  Interest saved: <span className="text-moss tabular-nums font-serif">{fmt(Math.round(interestSavedTotal), cur)}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       }>
       <NumInput label="Principal" value={P} onChange={setP} suffix={cur} testid="loan-principal" />
       <NumInput label="Annual rate" value={rate} onChange={setRate} suffix="%" testid="loan-rate" />
       <NumInput label="Term" value={years} onChange={setYears} suffix="years" testid="loan-years" />
+      <NumInput label="Extra monthly payment (optional)" value={extra} onChange={setExtra} suffix={cur} testid="loan-extra" />
     </CalcShell>
   );
 }
@@ -1391,7 +1426,7 @@ function ImportPanel({ store, update }) {
 }
 
 // ---------- Net Worth (assets & debts) ----------
-function NetWorth({ store, update }) {
+function NetWorth({ store, update, jumpTo }) {
   const cur = store.currency;
   const [aName, setAName] = useState(""); const [aVal, setAVal] = useState("");
   const [dName, setDName] = useState(""); const [dVal, setDVal] = useState(""); const [dRate, setDRate] = useState("");
@@ -1461,28 +1496,55 @@ function NetWorth({ store, update }) {
         </div>
 
         <div className="bg-white border border-rule p-6 rounded-sm">
-          <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Loans</div>
+          <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Debts <span className="text-[10px] normal-case tracking-normal text-graphite/60">(balances to repay · no interest tracked)</span></div>
           <div className="font-serif text-3xl tabular-nums mb-4">−{fmt(totalDebts, cur)}</div>
           <form onSubmit={addDebt} className="space-y-2 mb-4">
-            <input value={dName} onChange={e => setDName(e.target.value)} placeholder="Name (e.g. Mortgage)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="debt-name" />
+            <input value={dName} onChange={e => setDName(e.target.value)} placeholder="Name (e.g. Credit card, IOU to Mom)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="debt-name" />
             <div className="flex gap-2">
               <input type="number" step="0.01" value={dVal} onChange={e => setDVal(e.target.value)} placeholder="Balance" className="flex-1 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-lg" data-testid="debt-value" />
-              <input type="number" step="0.01" value={dRate} onChange={e => setDRate(e.target.value)} placeholder="APR %" className="w-20 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-lg" data-testid="debt-rate" />
               <button type="submit" className="bg-ink text-paper px-4 py-2 uppercase tracking-widest text-xs" data-testid="btn-add-debt">Add</button>
             </div>
           </form>
           <div className="divide-y divide-rule">
             {(store.debts || []).map(d => (
-              <div key={d.id} className="flex items-center gap-2 py-2" data-testid={`debt-${d.id}`}>
-                <div className="flex-1 truncate">{d.name} {d.rate ? <span className="text-xs text-graphite">· {d.rate}% APR</span> : null}</div>
-                <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(d.value, cur)}</div>
-                <button onClick={() => rmDebt(d.id)} className="p-1 hover:bg-stone2"><Trash2 size={12} className="text-graphite" /></button>
-              </div>
+              <NetWorthDebtRow key={d.id} debt={d} cur={cur} update={update} onDelete={() => rmDebt(d.id)} />
             ))}
             {(store.debts || []).length === 0 && <div className="text-graphite italic text-sm py-4 text-center">Nothing yet.</div>}
           </div>
+          <div className="mt-4 pt-3 border-t border-rule flex items-center justify-between">
+            <span className="overline text-graphite">Need to model interest?</span>
+            <button type="button" onClick={() => jumpTo && jumpTo("calculators")} className="text-xs uppercase tracking-widest text-moss hover:text-ink transition-colors" data-testid="nw-loan-calc-link">
+              Open Loan Calculator →
+            </button>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function NetWorthDebtRow({ debt, cur, update, onDelete }) {
+  const [pay, setPay] = useState("");
+  const payDown = (e) => {
+    e && e.preventDefault();
+    const amt = parseFloat(pay);
+    if (!amt || amt <= 0) return toast.error("Type an amount above 0.");
+    if (amt > debt.value) return toast.error(`Payment can't exceed balance of ${fmtDec(debt.value, cur)}.`);
+    update(s => ({ debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) }));
+    setPay("");
+    toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}". Balance now ${fmtDec(debt.value - amt, cur)}.`);
+  };
+  return (
+    <div className="flex items-center gap-2 py-2 flex-wrap md:flex-nowrap" data-testid={`debt-${debt.id}`}>
+      <div className="flex-1 min-w-0 truncate">{debt.name}</div>
+      <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(debt.value, cur)}</div>
+      <form onSubmit={payDown} className="flex items-center gap-1 shrink-0">
+        <input type="number" step="0.01" min="0" value={pay} onChange={e => setPay(e.target.value)} placeholder="Pay"
+          className="w-20 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
+          data-testid={`nw-pay-input-${debt.id}`} />
+        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`nw-pay-btn-${debt.id}`}>Pay</button>
+      </form>
+      <button onClick={onDelete} className="p-1 hover:bg-stone2" data-testid={`del-debt-${debt.id}`}><Trash2 size={12} className="text-graphite" /></button>
     </div>
   );
 }
@@ -1491,7 +1553,7 @@ function NetWorth({ store, update }) {
 // ---------- Balance Sheet — one unified two-column view ----------
 // LEFT (green): Investments + Cash on hand
 // RIGHT (red): Debts / Loans + Expenses (this month)
-function BalanceSheet({ store, jumpTo }) {
+function BalanceSheet({ store, jumpTo, update }) {
   const cur = store.currency;
 
   const months = useMemo(() => {
@@ -1511,59 +1573,72 @@ function BalanceSheet({ store, jumpTo }) {
   }, [asOf]);
 
   const report = useMemo(() => {
-    const upTo = (store.transactions || []).filter(t => t.date && t.date <= endOfMonth);
-    const monthTxns = upTo.filter(t => monthKey(t.date) === asOf);
+    const monthTxns = (store.transactions || []).filter(t => t.date && monthKey(t.date) === asOf);
 
-    // Expenses this month, grouped by category
+    // Income (this month) grouped by category
+    const incomeByCat = {};
+    monthTxns.forEach(t => {
+      if (t.type === "income") incomeByCat[t.category] = (incomeByCat[t.category] || 0) + (t.amount || 0);
+    });
+    const totalIncome = Object.values(incomeByCat).reduce((a, b) => a + b, 0);
+
+    // Expenses (this month) grouped by category — taken FROM income
     const expenseByCat = {};
     monthTxns.forEach(t => {
       if (t.type === "expense") expenseByCat[t.category] = (expenseByCat[t.category] || 0) + (t.amount || 0);
     });
     const totalExpenses = Object.values(expenseByCat).reduce((a, b) => a + b, 0);
 
-    // Cash on hand as of end of month
-    const cash = (store.settings?.startingBalance || 0) +
-      upTo.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
+    // Net cash flow this month = income − expenses
+    const netCashFlow = totalIncome - totalExpenses;
 
-    const investments = (store.assets || []).map(a => ({ name: a.name, value: a.value || 0 }));
+    // Investments — its own math (independent of cash flow)
+    const investments = (store.assets || []).map(a => ({ id: a.id, name: a.name, value: a.value || 0 }));
     const totalInvestments = investments.reduce((a, x) => a + x.value, 0);
 
-    const debts = (store.debts || []).map(d => ({ name: d.name, value: d.value || 0, rate: d.rate || 0 }));
+    // Debts — its own math (balances to be repaid, no interest)
+    const debts = (store.debts || []).map(d => ({ id: d.id, name: d.name, value: d.value || 0 }));
     const totalDebts = debts.reduce((a, x) => a + x.value, 0);
 
-    const totalGreen = Math.max(0, cash) + totalInvestments;
-    const totalRed = totalDebts + totalExpenses + Math.max(0, -cash);
+    // Aggregate columns (for the paired scoreboards)
+    const totalGreen = totalIncome + totalInvestments;
+    const totalRed = totalExpenses + totalDebts;
     const net = totalGreen - totalRed;
 
     return {
-      cash, investments, totalInvestments,
-      debts, totalDebts, expenseByCat, totalExpenses,
+      incomeByCat, totalIncome,
+      expenseByCat, totalExpenses,
+      netCashFlow,
+      investments, totalInvestments,
+      debts, totalDebts,
       totalGreen, totalRed, net,
     };
-  }, [store, asOf, endOfMonth]);
+  }, [store, asOf]);
 
   const exportCsv = () => {
     const rows = [
       ["Balance Sheet", monthLabel, ""],
       ["", "", ""],
-      ["GREEN — What you have", "", ""],
-      ["Investments", "", ""],
+      ["GREEN — What comes in / what you own", "", ""],
+      [`Income (${monthLabel})`, "", ""],
+      ...Object.entries(report.incomeByCat).map(([k, v]) => ["", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
+      ["", "Total Income", report.totalIncome.toFixed(2)],
+      ["Investments (independent)", "", ""],
       ...report.investments.map(a => ["", a.name, a.value.toFixed(2)]),
       ["", "Total Investments", report.totalInvestments.toFixed(2)],
-      ["Cash on hand", "", Math.max(0, report.cash).toFixed(2)],
       ["", "Total Green", report.totalGreen.toFixed(2)],
       ["", "", ""],
-      ["RED — What burdens you", "", ""],
-      ["Debts / Loans", "", ""],
-      ...report.debts.map(d => ["", `${d.name}${d.rate ? ` (${d.rate}% APR)` : ""}`, d.value.toFixed(2)]),
-      ["", "Total Debts", report.totalDebts.toFixed(2)],
-      [`Expenses (${monthLabel})`, "", ""],
+      ["RED — What goes out / what you owe", "", ""],
+      [`Expenses (${monthLabel}) — taken from income`, "", ""],
       ...Object.entries(report.expenseByCat).map(([k, v]) => ["", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
       ["", "Total Expenses", report.totalExpenses.toFixed(2)],
-      ...(report.cash < 0 ? [["Cash overdraft", "", Math.abs(report.cash).toFixed(2)]] : []),
+      ["Debts (independent, no interest tracked)", "", ""],
+      ...report.debts.map(d => ["", d.name, d.value.toFixed(2)]),
+      ["", "Total Debts", report.totalDebts.toFixed(2)],
       ["", "Total Red", report.totalRed.toFixed(2)],
       ["", "", ""],
-      ["", "Net position (Green − Red)", report.net.toFixed(2)],
+      ["Cash flow this month", "Income − Expenses", report.netCashFlow.toFixed(2)],
+      ["Overall position", "Total Green − Total Red", report.net.toFixed(2)],
     ];
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -1573,6 +1648,7 @@ function BalanceSheet({ store, jumpTo }) {
   };
 
   const positive = report.net >= 0;
+  const cashFlowPositive = report.netCashFlow >= 0;
 
   return (
     <div className="space-y-8" data-testid="balancesheet-content">
@@ -1601,6 +1677,24 @@ function BalanceSheet({ store, jumpTo }) {
         </div>
       </div>
 
+      {/* Cash flow strip — Income minus Expenses */}
+      <div className={`p-5 md:p-6 rounded-sm text-paper flex items-center justify-between gap-4 flex-wrap ${cashFlowPositive ? "bg-moss" : "bg-[#9B2C2C]"}`} data-testid="bs-cashflow">
+        <div>
+          <div className="overline text-paper/70">Cash flow · {monthLabel}</div>
+          <div className="mt-1 flex items-baseline gap-3 flex-wrap font-serif tracking-tight">
+            <span className="text-2xl tabular-nums">{fmt(report.totalIncome, cur)}</span>
+            <span className="text-paper/60 text-sm normal-case">income</span>
+            <span className="text-paper/60">−</span>
+            <span className="text-2xl tabular-nums">{fmt(report.totalExpenses, cur)}</span>
+            <span className="text-paper/60 text-sm normal-case">expenses</span>
+            <span className="text-paper/60">=</span>
+          </div>
+        </div>
+        <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none" data-testid="bs-cashflow-net">
+          {cashFlowPositive ? "+" : "−"}{fmt(Math.abs(report.netCashFlow), cur)}
+        </div>
+      </div>
+
       {/* Two-column ledger */}
       <div className="grid md:grid-cols-2 gap-0 border border-ink rounded-sm overflow-hidden">
         {/* LEFT / GREEN */}
@@ -1608,22 +1702,45 @@ function BalanceSheet({ store, jumpTo }) {
           <div className="p-6 md:p-8 border-b border-moss/30 flex items-center justify-between bg-moss text-paper">
             <div className="flex items-center gap-2">
               <TrendingUp size={16} />
-              <span className="overline">Green · What you have</span>
+              <span className="overline">Green · What comes in / what you own</span>
             </div>
             <div className="overline text-paper/70">{cur}</div>
           </div>
 
-          {/* Investments */}
+          {/* Income (this month) */}
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "income" })}
+            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-moss/10 transition-colors cursor-pointer group"
+            data-testid="bs-click-income"
+            title="Click to view & edit income transactions"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 overline text-moss">
+                <TrendingUp size={12} /> Income · {monthLabel}
+                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ view & edit</span>
+              </div>
+              <div className="font-serif text-lg tabular-nums text-moss">{fmt(report.totalIncome, cur)}</div>
+            </div>
+            {Object.entries(report.incomeByCat).length === 0 && (
+              <p className="text-graphite italic text-sm">No income this month.</p>
+            )}
+            {Object.entries(report.incomeByCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent />
+            ))}
+          </button>
+
+          {/* Investments (independent math) */}
           <button
             type="button"
             onClick={() => jumpTo && jumpTo("networth")}
-            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-moss/10 transition-colors cursor-pointer group"
+            className="w-full text-left p-6 md:p-8 hover:bg-moss/10 transition-colors cursor-pointer group"
             data-testid="bs-click-investments"
             title="Click to manage investments in Net Worth tab"
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-moss">
-                <PiggyBank size={12} /> Investments
+                <PiggyBank size={12} /> Investments <span className="text-[10px] normal-case tracking-normal text-graphite/60">(own math)</span>
                 <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-moss">{fmt(report.totalInvestments, cur)}</div>
@@ -1631,27 +1748,9 @@ function BalanceSheet({ store, jumpTo }) {
             {report.investments.length === 0 && (
               <p className="text-graphite italic text-sm">Add ETFs, savings, property in the Net Worth tab.</p>
             )}
-            {report.investments.map((a, i) => (
-              <StatementRow key={i} label={a.name} value={a.value} cur={cur} indent />
+            {report.investments.map((a) => (
+              <StatementRow key={a.id} label={a.name} value={a.value} cur={cur} indent />
             ))}
-          </button>
-
-          {/* Cash on hand */}
-          <button
-            type="button"
-            onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "income" })}
-            className="w-full text-left p-6 md:p-8 hover:bg-moss/10 transition-colors cursor-pointer group"
-            data-testid="bs-click-cash"
-            title="Click to view income transactions"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 overline text-moss">
-                <Wallet size={12} /> Cash on hand
-                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ view income</span>
-              </div>
-              <div className="font-serif text-lg tabular-nums text-moss">{fmt(Math.max(0, report.cash), cur)}</div>
-            </div>
-            <p className="text-xs text-graphite">Opening balance + net of all transactions through {new Date(endOfMonth).toLocaleDateString("default", { month: "short", day: "numeric" })}.</p>
           </button>
 
           {/* Total */}
@@ -1671,48 +1770,22 @@ function BalanceSheet({ store, jumpTo }) {
           <div className="p-6 md:p-8 border-b border-[#9B2C2C]/30 flex items-center justify-between bg-[#9B2C2C] text-paper">
             <div className="flex items-center gap-2">
               <TrendingDown size={16} />
-              <span className="overline">Red · What burdens you</span>
+              <span className="overline">Red · What goes out / what you owe</span>
             </div>
             <div className="overline text-paper/70">{cur}</div>
           </div>
 
-          {/* Debts / Loans */}
-          <button
-            type="button"
-            onClick={() => jumpTo && jumpTo("networth")}
-            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-[#9B2C2C]/10 transition-colors cursor-pointer group"
-            data-testid="bs-click-debts"
-            title="Click to manage debts in Net Worth tab"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2 overline text-[#9B2C2C]">
-                <Landmark size={12} /> Loans
-                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
-              </div>
-              <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalDebts, cur)}</div>
-            </div>
-            {report.debts.length === 0 && report.cash >= 0 && (
-              <p className="text-graphite italic text-sm">No debts recorded. Add loans in the Net Worth tab.</p>
-            )}
-            {report.cash < 0 && (
-              <StatementRow label="Cash overdraft" value={Math.abs(report.cash)} cur={cur} indent negative />
-            )}
-            {report.debts.map((d, i) => (
-              <StatementRow key={i} label={`${d.name}${d.rate ? ` · ${d.rate}% APR` : ""}`} value={d.value} cur={cur} indent negative />
-            ))}
-          </button>
-
-          {/* Expenses this month */}
+          {/* Expenses (this month) — taken FROM income */}
           <button
             type="button"
             onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "expense" })}
-            className="w-full text-left p-6 md:p-8 hover:bg-[#9B2C2C]/10 transition-colors cursor-pointer group"
+            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-[#9B2C2C]/10 transition-colors cursor-pointer group"
             data-testid="bs-click-expenses"
             title="Click to view & edit these expenses"
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-[#9B2C2C]">
-                <Receipt size={12} /> Expenses · {monthLabel}
+                <Receipt size={12} /> Expenses · {monthLabel} <span className="text-[10px] normal-case tracking-normal text-graphite/60">(taken from income)</span>
                 <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ view & edit</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalExpenses, cur)}</div>
@@ -1724,6 +1797,28 @@ function BalanceSheet({ store, jumpTo }) {
               <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent negative />
             ))}
           </button>
+
+          {/* Debts (own math, with inline manual pay-down) */}
+          <div className="p-6 md:p-8" data-testid="bs-debts-section">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 overline text-[#9B2C2C]">
+                <Landmark size={12} /> Debts <span className="text-[10px] normal-case tracking-normal text-graphite/60">(own math · pay manually)</span>
+              </div>
+              <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalDebts, cur)}</div>
+            </div>
+            {report.debts.length === 0 && (
+              <p className="text-graphite italic text-sm">No debts recorded. Add debts in the Net Worth tab or type "Loan 25000 car" in Quick Add.</p>
+            )}
+            {report.debts.map((d) => (
+              <DebtRowWithPay key={d.id} debt={d} cur={cur} update={update} />
+            ))}
+            <div className="mt-3 pt-3 border-t border-rule flex items-center justify-between">
+              <span className="overline text-graphite">Thinking of a new loan?</span>
+              <button type="button" onClick={() => jumpTo && jumpTo("calculators")} className="text-xs uppercase tracking-widest text-[#9B2C2C] hover:text-ink transition-colors" data-testid="bs-loan-calc-link">
+                Loan Calculator →
+              </button>
+            </div>
+          </div>
 
           {/* Total */}
           <button
@@ -1738,20 +1833,57 @@ function BalanceSheet({ store, jumpTo }) {
         </div>
       </div>
 
-      {/* Net verdict */}
+      {/* Net position verdict */}
       <div className={`p-6 md:p-8 rounded-sm text-paper flex items-center justify-between gap-4 flex-wrap ${positive ? "bg-moss" : "bg-[#9B2C2C]"}`} data-testid="bs-net">
         <div>
           <div className="overline text-paper/70">Net position · Green minus Red</div>
           <div className="text-paper/80 text-sm mt-1 max-w-md">
             {positive
-              ? "You're ahead — investments and cash outweigh your debts and monthly spend."
-              : "You're behind — debts and monthly spend outweigh investments and cash. Focus on paying down high-interest lines and trimming discretionary categories."}
+              ? "You're ahead — income and investments outweigh expenses and debts."
+              : "You're behind — expenses and debts outweigh income and investments. Focus on paying down debts and trimming discretionary categories."}
           </div>
         </div>
         <div className="font-serif text-5xl md:text-6xl tabular-nums tracking-tighter leading-none">
           {positive ? "+" : "−"}{fmt(Math.abs(report.net), cur)}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Debt row on the Balance Sheet with an inline manual "Pay" input.
+// Typing an amount and hitting Enter (or Pay) reduces the debt balance directly.
+// Does NOT create an expense transaction — the user handles cash separately.
+function DebtRowWithPay({ debt, cur, update }) {
+  const [pay, setPay] = useState("");
+  const submit = (e) => {
+    e && e.preventDefault();
+    const amt = parseFloat(pay);
+    if (!amt || amt <= 0) return toast.error("Type a payment amount above 0.");
+    if (amt > debt.value) return toast.error(`Payment can't exceed balance of ${fmtDec(debt.value, cur)}.`);
+    update(s => ({
+      debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d),
+    }));
+    setPay("");
+    toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}".`, { description: `Balance now ${fmtDec(debt.value - amt, cur)}` });
+  };
+  return (
+    <div className="flex items-center gap-2 py-2 border-b border-rule last:border-b-0" data-testid={`bs-debt-${debt.id}`}>
+      <div className="flex-1 text-sm text-graphite truncate">{debt.name}</div>
+      <div className="font-serif tabular-nums text-base text-[#9B2C2C]">−{fmt(debt.value, cur)}</div>
+      <form onSubmit={submit} className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={pay}
+          onChange={e => setPay(e.target.value)}
+          placeholder="Pay"
+          className="w-20 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
+          data-testid={`bs-pay-input-${debt.id}`}
+        />
+        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-3 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`bs-pay-btn-${debt.id}`}>Pay</button>
+      </form>
     </div>
   );
 }
