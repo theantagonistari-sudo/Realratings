@@ -161,6 +161,13 @@ function Dashboard({ store, update }) {
   }, [store, mk]);
 
   const spendingByCat = useMemo(() => {
+    const monthTxns = store.transactions.filter(t => monthKey(t.date) === mk && t.type === "expense");
+    const totals = {};
+    monthTxns.forEach(t => { totals[t.category] = (totals[t.category] || 0) + t.amount; });
+    return Object.entries(totals)
+      .map(([id, value]) => ({ name: (CAT_MAP[id] || { label: id }).label, value: Math.round(value), color: (CAT_MAP[id] || { color: "#A8A29E" }).color }))
+      .sort((a, b) => b.value - a.value);
+  }, [store, mk]);
 
   const last6 = useMemo(() => {
     const arr = [];
@@ -176,6 +183,30 @@ function Dashboard({ store, update }) {
   }, [store]);
 
   const recent = useMemo(() => store.transactions.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6), [store]);
+
+  const health = useMemo(() => {
+    const totalAssets = (store.assets || []).reduce((a, x) => a + (x.value || 0), 0);
+    const totalDebts = (store.debts || []).reduce((a, x) => a + (x.value || 0), 0);
+    const netWorth = stats.balance + totalAssets - totalDebts;
+    const debtRatio = totalAssets > 0 ? totalDebts / totalAssets : (totalDebts > 0 ? Infinity : 0);
+    const overspending = stats.expense > stats.income && stats.income > 0;
+
+    let verdict = "green", label = "In the Green", reason = "Income covers expenses and debts are well contained.";
+    if (netWorth < 0 || debtRatio > 0.6 || overspending) {
+      verdict = "red";
+      label = "In the Red";
+      reason = netWorth < 0
+        ? "Debts exceed cash and assets. Prioritise paying down high-interest lines."
+        : overspending
+        ? "You spent more than you earned this month. Trim discretionary categories."
+        : "Debt load is heavy versus what you own. Focus on reducing liabilities.";
+    } else if (debtRatio > 0.35 || stats.savingsRate < 10) {
+      verdict = "amber";
+      label = "Holding steady";
+      reason = "Positive net worth, but the savings rate or debt ratio needs attention.";
+    }
+    return { verdict, label, reason, netWorth, totalAssets, totalDebts };
+  }, [store, stats]);
 
   if (store.transactions.length === 0) {
     return <EmptyDashboard store={store} update={update} />;
