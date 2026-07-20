@@ -21,8 +21,8 @@ const API = process.env.REACT_APP_BACKEND_URL + "/api";
 const CATEGORIES = [
   { id: "salary", label: "Salary", type: "income", color: "#2C4033" },
   { id: "freelance", label: "Freelance", type: "income", color: "#3E5B49" },
-  { id: "investments", label: "Investments", type: "income", color: "#547265" },
-  { id: "other-income", label: "Other Income", type: "income", color: "#6A897B" },
+  { id: "investments", label: "Investment returns", type: "income", color: "#547265" },
+  { id: "other-income", label: "Other income", type: "income", color: "#6A897B" },
   { id: "housing", label: "Housing", type: "expense", color: "#1A1A1A" },
   { id: "food", label: "Food & Groceries", type: "expense", color: "#4A4A4A" },
   { id: "transport", label: "Transport", type: "expense", color: "#5C4A3A" },
@@ -34,6 +34,8 @@ const CATEGORIES = [
   { id: "other", label: "Other", type: "expense", color: "#A8A29E" },
 ];
 const CAT_MAP = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+// Four top-level buckets used for input UX
+const INVEST_CAT = "investments"; // investment RETURNS live under this category (type income)
 
 // ---------- Store ----------
 function loadStore() {
@@ -56,11 +58,20 @@ const monthKey = (isoDate) => (isoDate || "").slice(0, 7);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 // ---------- Client-side classifier ----------
-// Turns a freeform line ("Uber 24", "+5200 salary", "Netflix 15.99") into a structured transaction.
+// Turns a freeform line into one of 4 buckets:
+//  - "expense"        → transaction (type=expense) in Expenses
+//  - "income"         → transaction (type=income) in Incomes
+//  - "invest-return"  → transaction (type=income, category=investments) in Investment returns
+//  - "loan"           → NOT a transaction; adds to store.debts (liability)
 const CATEGORY_KEYWORDS = {
   salary: ["salary", "payroll", "wage", "wages", "bonus", "paycheck"],
   freelance: ["freelance", "gig", "contract", "consult", "invoice paid", "commission"],
-  investments: ["dividend", "interest received", "stock", "etf", "coin", "crypto", "brokerage", "yield", "portfolio"],
+  investments: [
+    // INVESTMENT RETURNS only (money coming IN from investments)
+    "dividend", "interest received", "yield", "capital gain", "capital gains",
+    "sold shares", "sold stock", "sold etf", "sold crypto", "cashed out",
+    "distribution received", "coupon received", "investment return", "returns received",
+  ],
   "other-income": ["refund", "cashback", "reimburs", "gift received", "deposit received", "rebate", "tax return"],
   housing: ["rent", "mortgage", "loan payment", "hoa", "landlord", "lease"],
   food: ["grocer", "restaurant", "cafe", "coffee", "starbucks", "whole foods", "trader joe", "market", "dinner", "lunch", "breakfast", "meal", "pizza", "burger", "chipotle", "mcdonald", "kfc", "doordash", "ubereats", "grubhub"],
@@ -72,17 +83,34 @@ const CATEGORY_KEYWORDS = {
   education: ["course", "book", "tuition", "school", "coursera", "udemy", "kindle", "audible", "class"],
   other: [],
 };
+// Explicit loan/liability keywords — trigger the LOAN bucket (adds to store.debts)
+const LOAN_KEYWORDS = [
+  "loan received", "took loan", "took a loan", "took out loan", "borrowed", "new loan",
+  "mortgage taken", "credit line opened", "new credit card",
+  "mortgage balance", "loan balance", "credit card balance", "line of credit",
+  "student loan balance", "car loan balance",
+  // simple triggers users type
+  "loan:", "loan ", "mortgage:", "mortgage ",
+];
 const INCOME_KEYWORDS = new Set([
   ...CATEGORY_KEYWORDS.salary, ...CATEGORY_KEYWORDS.freelance,
   ...CATEGORY_KEYWORDS["other-income"], "income", "received", "earned", "credited", "credit",
 ]);
 const CATEGORY_TO_TYPE = Object.fromEntries(CATEGORIES.map(c => [c.id, c.type]));
 
+// Safety guard: enforce that a transaction's type matches its category's declared type.
+function normalizeTxn(t) {
+  if (!t) return t;
+  const canon = CATEGORY_TO_TYPE[t.category];
+  return canon && t.type !== canon ? { ...t, type: canon } : t;
+}
+
 function classifyLine(raw) {
   const line = (raw || "").trim();
   if (!line) return null;
+  const lower = line.toLowerCase();
 
-  // Amount: prefer the last number in the line (most transaction formats: "note ... amount")
+  // Amount extraction
   const numRe = /-?\+?\$?[\d]+(?:[,]\d{3})*(?:\.\d+)?/g;
   const nums = line.match(numRe);
   if (!nums || nums.length === 0) return null;
@@ -91,10 +119,26 @@ function classifyLine(raw) {
   const explicitNegative = rawAmount.startsWith("-");
   const amount = Math.abs(parseFloat(rawAmount.replace(/[,+$]/g, "")));
   if (!amount || Number.isNaN(amount)) return null;
-
-  // Strip the amount from the note
   const note = line.replace(rawAmount, "").replace(/\s+/g, " ").trim() || "Transaction";
-  const lower = line.toLowerCase();
+
+  // ── LOAN bucket (adds to store.debts, not a transaction)
+  if (LOAN_KEYWORDS.some(k => lower.includes(k))) {
+    // Extract APR if present (e.g. "car loan 25000 5%" or "mortgage 300000 3.5% APR")
+    const aprMatch = line.match(/(\d+(?:\.\d+)?)\s*%/);
+    const rate = aprMatch ? parseFloat(aprMatch[1]) : 0;
+    // Balance = the largest number that ISN'T the APR
+    const withoutApr = aprMatch ? line.replace(aprMatch[0], " ") : line;
+    const balNums = (withoutApr.match(numRe) || []).map(n => Math.abs(parseFloat(n.replace(/[,+$]/g, ""))));
+    const balance = balNums.length ? Math.max(...balNums) : amount;
+    const cleanName = withoutApr.replace(new RegExp(balance.toString(), "g"), "").replace(/(apr|loan|balance|owed)/gi, "").replace(/\s+/g, " ").trim() || "Loan";
+    return {
+      bucket: "loan",
+      name: cleanName.length > 40 ? cleanName.slice(0, 40) : cleanName,
+      value: Math.round(balance * 100) / 100,
+      rate,
+      confidence: "high",
+    };
+  }
 
   // Keyword-based category detection (longest match wins)
   let matched = null;
@@ -114,10 +158,17 @@ function classifyLine(raw) {
   else if ([...INCOME_KEYWORDS].some(k => lower.includes(k))) type = "income";
   else type = "expense";
 
-  // If type income and category still "other", nudge to "other-income"
+  // If explicit + sign but no category matched, treat as other-income
   if (type === "income" && category === "other") category = "other-income";
 
+  // Bucket: derived from type + category
+  let bucket = "expense";
+  if (type === "income" && category === INVEST_CAT) bucket = "invest-return";
+  else if (type === "income") bucket = "income";
+  else bucket = "expense";
+
   return {
+    bucket,
     type,
     category,
     amount: Math.round(amount * 100) / 100,
@@ -406,7 +457,8 @@ function Dashboard({ store, update }) {
           initial={editing}
           onClose={() => setEditing(null)}
           onSave={(t) => {
-            update(s => ({ transactions: s.transactions.map(x => x.id === editing.id ? { ...x, ...t } : x) }));
+            const nt = normalizeTxn(t);
+            update(s => ({ transactions: s.transactions.map(x => x.id === editing.id ? { ...x, ...nt } : x) }));
             setEditing(null);
             toast.success("Transaction updated.");
           }}
@@ -442,7 +494,7 @@ function EmptyDashboard({ store, update }) {
           </button>
           <StartingBalance store={store} update={update} />
         </div>
-        {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { update(s => ({ transactions: [{ ...t, id: uid() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
+        {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
       </div>
     </div>
   );
@@ -456,15 +508,34 @@ function QuickAdd({ store, update }) {
   const submit = (e) => {
     e && e.preventDefault();
     const t = classifyLine(text);
-    if (!t) { toast.error("Type something like 'Uber 24' or '+5200 salary'."); return; }
+    if (!t) { toast.error("Type something like 'Uber 24', '+5200 salary', 'Dividend 200', or 'Car loan 25000 5%'."); return; }
+
+    // LOAN bucket → adds a liability to store.debts, not a transaction
+    if (t.bucket === "loan") {
+      const id = uid();
+      const debt = { id, name: t.name, value: t.value, rate: t.rate || 0 };
+      update(s => ({ debts: [...(s.debts || []), debt] }));
+      setText("");
+      toast.success(`Loan added · ${fmtDec(t.value, store.currency)}${t.rate ? ` @ ${t.rate}% APR` : ""}`, {
+        description: `"${t.name}" · view under Loans in the Balance Sheet / Net Worth tab`,
+        action: { label: "Undo", onClick: () => {
+          update(s => ({ debts: (s.debts || []).filter(x => x.id !== id) }));
+        }},
+      });
+      return;
+    }
+
+    // TRANSACTION buckets (expense / income / invest-return) → normalise & add
     const id = uid();
-    const txn = { ...t, id };
+    const clean = normalizeTxn({ type: t.type, category: t.category, amount: t.amount, note: t.note, date: t.date });
+    const txn = { ...clean, id };
     update(s => ({ transactions: [txn, ...s.transactions] }));
     setLast({ txn, id });
     setText("");
     const catLabel = (CAT_MAP[txn.category] || { label: txn.category }).label;
+    const bucketLabel = t.bucket === "invest-return" ? "Investment return" : (txn.type === "income" ? "Income" : "Expense");
     const prefix = txn.type === "income" ? "+" : "−";
-    toast.success(`${prefix}${fmtDec(txn.amount, store.currency)} · ${catLabel}`, {
+    toast.success(`${prefix}${fmtDec(txn.amount, store.currency)} · ${bucketLabel} · ${catLabel}`, {
       description: t.confidence === "medium" ? "Categorised as best-guess. Edit if needed." : txn.note,
       action: { label: "Undo", onClick: () => {
         update(s => ({ transactions: s.transactions.filter(x => x.id !== id) }));
@@ -480,19 +551,29 @@ function QuickAdd({ store, update }) {
   };
 
   const preview = classifyLine(text);
-  const catLabel = preview ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
+  const catLabel = preview && preview.bucket !== "loan" ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
+  const bucketLabel = preview
+    ? (preview.bucket === "loan" ? "Loan" : preview.bucket === "invest-return" ? "Investment return" : preview.type === "income" ? "Income" : "Expense")
+    : null;
+  const bucketColor = preview
+    ? (preview.bucket === "loan"
+        ? "bg-[#9B2C2C]/10 text-[#9B2C2C]"
+        : preview.type === "income"
+          ? "bg-moss/10 text-moss"
+          : "bg-[#9B2C2C]/10 text-[#9B2C2C]")
+    : "";
 
   return (
     <div className="bg-white border border-ink rounded-sm p-5 md:p-6" data-testid="quick-add">
       <div className="flex items-center gap-2 mb-3">
         <Sparkles size={12} className="text-moss" />
-        <span className="overline text-moss">Quick add · type & press enter</span>
+        <span className="overline text-moss">Quick add · expenses · incomes · loans · investment returns</span>
       </div>
       <form onSubmit={submit} className="flex gap-2 flex-wrap md:flex-nowrap items-center">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Netflix 15.99"'
+          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Dividend 200"   ·   "Car loan 25000 5%"'
           className="flex-1 min-w-0 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-3 font-serif text-xl md:text-2xl tracking-tight placeholder:text-graphite/50 placeholder:font-sans placeholder:text-base"
           data-testid="quick-add-input"
           autoComplete="off"
@@ -504,13 +585,24 @@ function QuickAdd({ store, update }) {
       {preview && (
         <div className="mt-3 flex items-center gap-2 text-xs text-graphite flex-wrap" data-testid="quick-add-preview">
           <span className="overline">Will save as</span>
-          <span className={`px-2 py-0.5 rounded-sm ${preview.type === "income" ? "bg-moss/10 text-moss" : "bg-[#9B2C2C]/10 text-[#9B2C2C]"}`}>
-            {preview.type === "income" ? "Income" : "Expense"}
+          <span className={`px-2 py-0.5 rounded-sm ${bucketColor}`} data-testid="quick-add-bucket">
+            {bucketLabel}
           </span>
-          <span className="text-ink">{catLabel}</span>
-          <span className="text-graphite">·</span>
-          <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.amount, store.currency)}</span>
-          {preview.confidence === "medium" && <span className="text-graphite italic">· best-guess category, edit after adding</span>}
+          {preview.bucket === "loan" ? (
+            <>
+              <span className="text-ink">{preview.name}</span>
+              <span className="text-graphite">·</span>
+              <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.value, store.currency)}</span>
+              {preview.rate ? <span className="text-graphite">@ {preview.rate}% APR</span> : null}
+            </>
+          ) : (
+            <>
+              <span className="text-ink">{catLabel}</span>
+              <span className="text-graphite">·</span>
+              <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.amount, store.currency)}</span>
+              {preview.confidence === "medium" && <span className="text-graphite italic">· best-guess, edit after adding</span>}
+            </>
+          )}
         </div>
       )}
       {last && (
@@ -626,7 +718,12 @@ function Transactions({ store, update, initialFilter }) {
         ) : filtered.map(t => <TxnRow key={t.id} txn={t} cur={cur} onDelete={() => del(t.id)} onEdit={setEditing} />)}
       </div>
 
-      {open && <TxnDialog onClose={() => setOpen(false)} onSave={(t) => { update(s => ({ transactions: [{ ...t, id: uid() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }} cur={cur} />}
+      {open && <TxnDialog
+        onClose={() => setOpen(false)}
+        onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }}
+        onSaveLoan={(d) => { update(s => ({ debts: [...(s.debts || []), { ...d, id: uid() }] })); setOpen(false); toast.success("Loan added."); }}
+        cur={cur}
+      />}
       {editing && (
         <TxnDialog
           initial={editing}
@@ -680,65 +777,136 @@ function TxnRow({ txn, cur, onDelete, onEdit }) {
   );
 }
 
-function TxnDialog({ onClose, onSave, cur, initial }) {
+function TxnDialog({ onClose, onSave, cur, initial, onSaveLoan }) {
   const isEdit = !!initial;
-  const [type, setType] = useState(initial?.type || "expense");
+  // Bucket: expense | income | invest-return | loan
+  const initialBucket = initial
+    ? (initial.type === "income" ? (initial.category === INVEST_CAT ? "invest-return" : "income") : "expense")
+    : "expense";
+  const [bucket, setBucket] = useState(initialBucket);
   const [category, setCategory] = useState(initial?.category || "food");
   const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : "");
   const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState(initial?.note || "");
-  const filtered = CATEGORIES.filter(c => c.type === type);
+  // Loan-specific fields (only visible when bucket === "loan")
+  const [loanName, setLoanName] = useState("");
+  const [loanRate, setLoanRate] = useState("");
+
+  // When bucket changes, snap category to a valid one for that bucket
+  const changeBucket = (b) => {
+    setBucket(b);
+    if (b === "expense") setCategory("food");
+    else if (b === "income") setCategory("salary");
+    else if (b === "invest-return") setCategory(INVEST_CAT);
+  };
+
+  const bucketMeta = {
+    expense: { label: "Expense", sign: "−", color: "bg-[#9B2C2C] text-paper", filter: c => c.type === "expense" },
+    income: { label: "Income", sign: "+", color: "bg-moss text-paper", filter: c => c.type === "income" && c.id !== INVEST_CAT },
+    "invest-return": { label: "Investment return", sign: "+", color: "bg-moss text-paper", filter: c => c.id === INVEST_CAT },
+    loan: { label: "Loan", sign: "", color: "bg-[#9B2C2C] text-paper" },
+  };
+
+  const filtered = bucket === "loan" ? [] : CATEGORIES.filter(bucketMeta[bucket].filter);
+
+  // If invest-return picked, force category to investments
+  useEffect(() => {
+    if (bucket === "invest-return" && category !== INVEST_CAT) setCategory(INVEST_CAT);
+  }, [bucket, category]);
+
   const submit = (e) => {
     e.preventDefault();
     const a = parseFloat(amount);
     if (!a || a <= 0) return toast.error("Amount must be greater than 0.");
-    onSave({ type, category, amount: a, date, note });
+
+    if (bucket === "loan") {
+      if (!loanName.trim()) return toast.error("Give the loan a name.");
+      if (!onSaveLoan) return toast.error("Loans can only be added from the main ledger.");
+      onSaveLoan({ name: loanName.trim(), value: a, rate: parseFloat(loanRate) || 0 });
+      return;
+    }
+    const type = bucket === "expense" ? "expense" : "income";
+    const cat = bucket === "invest-return" ? INVEST_CAT : category;
+    onSave({ type, category: cat, amount: a, date, note });
   };
+
   return (
     <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-paper border border-ink max-w-md w-full" onClick={e => e.stopPropagation()} data-testid="txn-dialog">
-        <div className="border-b border-rule px-6 py-4 flex items-center justify-between">
-          <h3 className="font-serif text-2xl">{isEdit ? "Edit transaction" : "New transaction"}</h3>
+      <div className="bg-paper border border-ink max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()} data-testid="txn-dialog">
+        <div className="border-b border-rule px-6 py-4 flex items-center justify-between sticky top-0 bg-paper">
+          <h3 className="font-serif text-2xl">{isEdit ? "Edit transaction" : "New entry"}</h3>
           <button onClick={onClose} className="p-1 hover:bg-stone2"><X size={16} /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-5">
-          <div className="grid grid-cols-2 gap-1 border border-rule p-1">
-            {["expense", "income"].map(t => (
-              <button key={t} type="button" onClick={() => { setType(t); if (!CATEGORIES.find(c => c.id === category && c.type === t)) setCategory(CATEGORIES.find(c => c.type === t).id); }}
-                className={`py-2 uppercase tracking-widest text-xs transition-colors ${type === t ? "bg-ink text-paper" : "text-graphite hover:text-ink"}`}
-                data-testid={`type-${t}`}>
-                {t === "expense" ? "− Expense" : "+ Income"}
+          {/* 4-bucket picker */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-1 border border-rule p-1">
+            {(isEdit && initialBucket === "loan" ? ["loan"]
+              : isEdit ? ["expense", "income", "invest-return"]
+              : ["expense", "income", "invest-return", "loan"]
+            ).map(b => (
+              <button key={b} type="button" onClick={() => changeBucket(b)}
+                className={`py-2 uppercase tracking-widest text-[10px] transition-colors ${bucket === b ? bucketMeta[b].color : "text-graphite hover:text-ink"}`}
+                data-testid={`bucket-${b}`}>
+                {bucketMeta[b].sign} {bucketMeta[b].label}
               </button>
             ))}
           </div>
-          <div>
-            <label className="overline block mb-2">Amount ({CURRENCIES[cur]})</label>
-            <input type="number" step="0.01" required autoFocus value={amount} onChange={e => setAmount(e.target.value)}
-              className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-4xl tracking-tighter"
-              data-testid="input-amount" placeholder="0.00" />
-          </div>
-          <div>
-            <label className="overline block mb-2">Category</label>
-            <select value={category} onChange={e => setCategory(e.target.value)}
-              className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="input-category">
-              {filtered.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="overline block mb-2">Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="input-date" />
-            </div>
-            <div>
-              <label className="overline block mb-2">Note</label>
-              <input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional"
-                className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="input-note" />
-            </div>
-          </div>
+
+          {bucket === "loan" ? (
+            <>
+              <div>
+                <label className="overline block mb-2">Loan name</label>
+                <input value={loanName} onChange={e => setLoanName(e.target.value)} placeholder="e.g. Car loan, Mortgage, Credit card" autoFocus
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="loan-name" />
+              </div>
+              <div>
+                <label className="overline block mb-2">Balance owed ({CURRENCIES[cur]})</label>
+                <input type="number" step="0.01" required value={amount} onChange={e => setAmount(e.target.value)}
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-4xl tracking-tighter"
+                  data-testid="input-amount" placeholder="0.00" />
+              </div>
+              <div>
+                <label className="overline block mb-2">APR % (optional)</label>
+                <input type="number" step="0.01" value={loanRate} onChange={e => setLoanRate(e.target.value)}
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-2xl tracking-tight"
+                  data-testid="loan-rate" placeholder="0" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="overline block mb-2">Amount ({CURRENCIES[cur]})</label>
+                <input type="number" step="0.01" required autoFocus value={amount} onChange={e => setAmount(e.target.value)}
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-4xl tracking-tighter"
+                  data-testid="input-amount" placeholder="0.00" />
+              </div>
+              <div>
+                <label className="overline block mb-2">Category</label>
+                <select value={category} onChange={e => setCategory(e.target.value)} disabled={bucket === "invest-return"}
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 disabled:opacity-70" data-testid="input-category">
+                  {filtered.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="overline block mb-2">Date</label>
+                  <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                    className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="input-date" />
+                </div>
+                <div>
+                  <label className="overline block mb-2">Note</label>
+                  <input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional"
+                    className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2" data-testid="input-note" />
+                </div>
+              </div>
+            </>
+          )}
+
           <div className="flex justify-end gap-3 pt-2 border-t border-rule">
             <button type="button" onClick={onClose} className="border border-ink px-5 py-2.5 uppercase tracking-widest text-xs">Cancel</button>
-            <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-save-txn">{isEdit ? "Save changes" : "Add transaction"}</button>
+            <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-save-txn">
+              {isEdit ? "Save changes" : bucket === "loan" ? "Add loan" : "Add"}
+            </button>
           </div>
         </form>
       </div>
@@ -1147,7 +1315,7 @@ function ImportPanel({ store, update }) {
   };
 
   const commit = () => {
-    const chosen = preview.filter((_, i) => selected[i]).map(t => ({ ...t, id: uid() }));
+    const chosen = preview.filter((_, i) => selected[i]).map(t => ({ ...normalizeTxn(t), id: uid() }));
     if (chosen.length === 0) return toast.error("Select at least one row.");
     update(s => ({ transactions: [...chosen, ...s.transactions] }));
     setPreview([]); setText(""); setSelected({});
@@ -1265,13 +1433,13 @@ function NetWorth({ store, update }) {
         <div className="mt-4 flex gap-8 text-sm text-paper/80 flex-wrap">
           <span>Cash on hand: {fmt(txnBalance, cur)}</span>
           <span>Assets: {fmt(totalAssets, cur)}</span>
-          <span>Debts: −{fmt(totalDebts, cur)}</span>
+          <span>Loans: −{fmt(totalDebts, cur)}</span>
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white border border-rule p-6 rounded-sm">
-          <div className="overline text-moss mb-2 flex items-center gap-2"><PiggyBank size={12} /> Assets</div>
+          <div className="overline text-moss mb-2 flex items-center gap-2"><PiggyBank size={12} /> Investments</div>
           <div className="font-serif text-3xl tabular-nums mb-4">{fmt(totalAssets, cur)}</div>
           <form onSubmit={addAsset} className="space-y-2 mb-4">
             <input value={aName} onChange={e => setAName(e.target.value)} placeholder="Name (e.g. ETF portfolio)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="asset-name" />
@@ -1293,7 +1461,7 @@ function NetWorth({ store, update }) {
         </div>
 
         <div className="bg-white border border-rule p-6 rounded-sm">
-          <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Debts</div>
+          <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Loans</div>
           <div className="font-serif text-3xl tabular-nums mb-4">−{fmt(totalDebts, cur)}</div>
           <form onSubmit={addDebt} className="space-y-2 mb-4">
             <input value={dName} onChange={e => setDName(e.target.value)} placeholder="Name (e.g. Mortgage)" className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 text-sm" data-testid="debt-name" />
@@ -1518,7 +1686,7 @@ function BalanceSheet({ store, jumpTo }) {
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-[#9B2C2C]">
-                <Landmark size={12} /> Debts / Loans
+                <Landmark size={12} /> Loans
                 <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalDebts, cur)}</div>

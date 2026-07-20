@@ -762,9 +762,12 @@ Return ONLY a valid JSON array. Each element must have EXACTLY these fields:
 - note: short human-readable description (<= 40 chars, no PII)
 
 Rules:
-- If a debt payment, categorise as "housing" (loan/mortgage) or "other" (credit card / personal loan). Payments are EXPENSES.
-- If an investment purchase, category = "investments", type = "expense".
-- If interest/dividend received, category = "investments", type = "income".
+- Money IN falls into ONE of two categories on the income side:
+    a) "investments" → dividends, interest received, yield, capital gains, sale proceeds, coupon (i.e. INVESTMENT RETURNS)
+    b) salary / freelance / other-income → wages, refunds, gifts received, cashback, etc.
+- Money OUT (all EXPENSES) uses one of: housing / food / transport / utilities / health / entertainment / shopping / education / other.
+- Loan payments (mortgage, credit card payment, student loan payment) → category = "housing" for mortgage, "other" otherwise, type = "expense".
+- Investment PURCHASES (buying an ETF, stock, crypto, contributing to IRA/401k, brokerage deposit) → category = "other", type = "expense", note prefixed with "Investment: ". These are not returns.
 - Skip informational-only rows (totals, subtotals, headers).
 - If truly nothing found, return [].
 Return ONLY the JSON array. No prose, no code fence."""
