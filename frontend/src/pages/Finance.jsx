@@ -213,7 +213,7 @@ export default function Finance() {
 
       {/* Body */}
       <section className="max-w-6xl mx-auto px-6 md:px-12 py-10">
-        {tab === "dashboard" && <Dashboard store={store} update={update} />}
+        {tab === "dashboard" && <Dashboard store={store} update={update} jumpTo={jumpTo} />}
         {tab === "transactions" && <Transactions store={store} update={update} initialFilter={txnFilter} />}
         {tab === "import" && <ImportPanel store={store} update={update} />}
         {tab === "budgets" && <Budgets store={store} update={update} />}
@@ -275,7 +275,7 @@ function TabBar({ tab, onChange }) {
 }
 
 // ---------- Dashboard ----------
-function Dashboard({ store, update }) {
+function Dashboard({ store, update, jumpTo }) {
   const cur = store.currency;
   const mk = thisMonth();
   const [editing, setEditing] = useState(null);
@@ -347,12 +347,18 @@ function Dashboard({ store, update }) {
       <QuickAdd store={store} update={update} />
 
       {/* Financial Health verdict */}
-      <div className={`p-6 md:p-8 rounded-sm text-paper flex items-center gap-6 flex-wrap ${health.verdict === "green" ? "bg-moss" : health.verdict === "amber" ? "bg-[#B57B4B]" : "bg-[#9B2C2C]"}`} data-testid="health-card">
+      <button
+        type="button"
+        onClick={() => jumpTo && jumpTo("balancesheet")}
+        className={`w-full text-left p-6 md:p-8 rounded-sm text-paper flex items-center gap-6 flex-wrap transition-transform hover:scale-[1.005] cursor-pointer ${health.verdict === "green" ? "bg-moss hover:bg-moss/95" : health.verdict === "amber" ? "bg-[#B57B4B] hover:bg-[#B57B4B]/95" : "bg-[#9B2C2C] hover:bg-[#9B2C2C]/95"}`}
+        data-testid="health-card"
+        title="Click to open the Balance Sheet"
+      >
         <div className={`w-14 h-14 rounded-full border-2 border-paper/40 flex items-center justify-center shrink-0`}>
           {health.verdict === "green" ? <TrendingUp size={24} /> : health.verdict === "amber" ? <Target size={24} /> : <TrendingDown size={24} />}
         </div>
         <div className="flex-1 min-w-[220px]">
-          <div className="overline text-paper/70 mb-1">Financial health</div>
+          <div className="overline text-paper/70 mb-1">Financial health · click for balance sheet →</div>
           <div className="font-serif text-3xl md:text-4xl tracking-tighter leading-none" data-testid="health-label">{health.label}</div>
           <div className="text-paper/80 text-sm mt-2">{health.reason}</div>
         </div>
@@ -361,24 +367,36 @@ function Dashboard({ store, update }) {
           <div className="font-serif text-3xl md:text-4xl tabular-nums leading-none" data-testid="health-networth">{fmt(health.netWorth, cur)}</div>
           <div className="text-xs text-paper/70 mt-2">Assets {fmt(health.totalAssets, cur)} · Debts −{fmt(health.totalDebts, cur)}</div>
         </div>
-      </div>
+      </button>
 
       {/* Hero Stats — Bento */}
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 md:col-span-6 bg-ink text-paper p-8 rounded-sm">
-          <div className="overline text-paper/70 mb-2">Total balance</div>
+        <button
+          type="button"
+          onClick={() => jumpTo && jumpTo("transactions")}
+          className="col-span-12 md:col-span-6 bg-ink text-paper p-8 rounded-sm text-left hover:bg-ink/90 transition-colors cursor-pointer group"
+          data-testid="stat-balance-tile"
+          title="Click to view all transactions"
+        >
+          <div className="overline text-paper/70 mb-2">Total balance · click to view ledger →</div>
           <div className="font-serif text-6xl md:text-7xl tracking-tighter leading-none" data-testid="stat-balance">{fmt(stats.balance, cur)}</div>
           <div className="mt-4 text-paper/70 text-sm">Cumulative across all recorded transactions</div>
-        </div>
-        <StatTile label="This month · Income"  value={fmt(stats.income, cur)} icon={<TrendingUp size={16} />} sub="Credit total" testid="stat-income" positive />
-        <StatTile label="This month · Expense" value={fmt(stats.expense, cur)} icon={<TrendingDown size={16} />} sub="Debit total" testid="stat-expense" negative />
-        <StatTile label="Net · this month"     value={fmt(stats.net, cur)}     icon={<PiggyBank size={16} />}    sub={`${stats.savingsRate.toFixed(0)}% savings rate`} testid="stat-net" />
-        <StatTile label="Transactions"         value={store.transactions.length} icon={<Receipt size={16} />}    sub="All-time count" testid="stat-txns" />
+        </button>
+        <StatTile label="This month · Income"  value={fmt(stats.income, cur)} icon={<TrendingUp size={16} />} sub="Click to see income" testid="stat-income" positive onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "income" })} />
+        <StatTile label="This month · Expense" value={fmt(stats.expense, cur)} icon={<TrendingDown size={16} />} sub="Click to see expenses" testid="stat-expense" negative onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "expense" })} />
+        <StatTile label="Net · this month"     value={fmt(stats.net, cur)}     icon={<PiggyBank size={16} />}    sub={`${stats.savingsRate.toFixed(0)}% savings rate · Click for budgets`} testid="stat-net" onClick={() => jumpTo && jumpTo("budgets")} />
+        <StatTile label="Transactions"         value={store.transactions.length} icon={<Receipt size={16} />}    sub="All-time count · Click for ledger" testid="stat-txns" onClick={() => jumpTo && jumpTo("transactions")} />
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 lg:col-span-7 bg-white border border-rule p-6 rounded-sm">
+        <button
+          type="button"
+          onClick={() => jumpTo && jumpTo("balancesheet")}
+          className="col-span-12 lg:col-span-7 bg-white border border-rule p-6 rounded-sm text-left hover:border-ink transition-colors cursor-pointer"
+          data-testid="chart-incexp"
+          title="Click to open the Balance Sheet"
+        >
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="overline text-moss mb-1">Last 6 months</div>
@@ -401,12 +419,15 @@ function Dashboard({ store, update }) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </button>
 
-        <div className="col-span-12 lg:col-span-5 bg-white border border-rule p-6 rounded-sm">
-          <div className="mb-4">
-            <div className="overline text-moss mb-1">This month</div>
-            <h3 className="font-serif text-2xl tracking-tight">Spending by category.</h3>
+        <div className="col-span-12 lg:col-span-5 bg-white border border-rule p-6 rounded-sm" data-testid="chart-cats">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <div className="overline text-moss mb-1">This month</div>
+              <h3 className="font-serif text-2xl tracking-tight">Spending by category.</h3>
+            </div>
+            <button type="button" onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "expense" })} className="text-xs uppercase tracking-widest text-moss hover:text-ink transition-colors" data-testid="chart-cats-link">See all →</button>
           </div>
           {spendingByCat.length === 0 ? (
             <div className="h-72 flex items-center justify-center text-graphite italic">No expenses recorded this month.</div>
@@ -426,13 +447,24 @@ function Dashboard({ store, update }) {
                 </ResponsiveContainer>
               </div>
               <div className="space-y-2 text-sm">
-                {spendingByCat.slice(0, 6).map((c) => (
-                  <div key={c.name} className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.color }} />
-                    <span className="flex-1 truncate text-graphite">{c.name}</span>
-                    <span className="font-serif text-ink tabular-nums">{fmt(c.value, cur)}</span>
-                  </div>
-                ))}
+                {spendingByCat.slice(0, 6).map((c) => {
+                  // find category id by matching label
+                  const catEntry = CATEGORIES.find(cat => cat.label === c.name);
+                  return (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => catEntry && jumpTo && jumpTo("transactions", { month: mk, type: "expense", category: catEntry.id })}
+                      className="w-full flex items-center gap-2 hover:bg-stone2/50 transition-colors px-2 py-1 -mx-2 rounded-sm text-left"
+                      data-testid={`cat-tile-${catEntry?.id || c.name}`}
+                      title="Click to see transactions in this category"
+                    >
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.color }} />
+                      <span className="flex-1 truncate text-graphite">{c.name}</span>
+                      <span className="font-serif text-ink tabular-nums">{fmt(c.value, cur)}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -468,14 +500,18 @@ function Dashboard({ store, update }) {
   );
 }
 
-function StatTile({ label, value, icon, sub, positive, negative, testid }) {
-  return (
-    <div className={`col-span-6 md:col-span-3 border p-6 rounded-sm ${negative ? "bg-white border-[#9B2C2C]/30" : positive ? "bg-white border-moss/30" : "bg-white border-rule"}`} data-testid={testid}>
+function StatTile({ label, value, icon, sub, positive, negative, testid, onClick }) {
+  const cls = `col-span-6 md:col-span-3 border p-6 rounded-sm text-left transition-colors ${negative ? "bg-white border-[#9B2C2C]/30 hover:bg-[#9B2C2C]/5" : positive ? "bg-white border-moss/30 hover:bg-moss/5" : "bg-white border-rule hover:bg-stone2/40"} ${onClick ? "cursor-pointer" : ""}`;
+  const content = (
+    <>
       <div className="flex items-center gap-2 overline text-graphite mb-3">{icon}{label}</div>
       <div className={`font-serif text-3xl tracking-tighter tabular-nums leading-none ${positive ? "text-moss" : negative ? "text-[#9B2C2C]" : "text-ink"}`}>{value}</div>
       {sub && <div className="text-xs text-graphite mt-2">{sub}</div>}
-    </div>
+    </>
   );
+  return onClick
+    ? <button type="button" onClick={onClick} className={cls} data-testid={testid}>{content}</button>
+    : <div className={cls} data-testid={testid}>{content}</div>;
 }
 
 function EmptyDashboard({ store, update }) {
@@ -643,12 +679,14 @@ function Transactions({ store, update, initialFilter }) {
   const [editing, setEditing] = useState(null); // txn being edited
   const [filterMonth, setFilterMonth] = useState(initialFilter?.month || "");
   const [filterType, setFilterType] = useState(initialFilter?.type || "");
+  const [filterCategory, setFilterCategory] = useState(initialFilter?.category || "");
   const [q, setQ] = useState("");
 
   useEffect(() => {
     if (initialFilter) {
       if (initialFilter.month != null) setFilterMonth(initialFilter.month);
       if (initialFilter.type != null) setFilterType(initialFilter.type);
+      if (initialFilter.category != null) setFilterCategory(initialFilter.category);
     }
   }, [initialFilter]);
 
@@ -661,9 +699,10 @@ function Transactions({ store, update, initialFilter }) {
     return store.transactions
       .filter(t => !filterMonth || monthKey(t.date) === filterMonth)
       .filter(t => !filterType || t.type === filterType)
+      .filter(t => !filterCategory || t.category === filterCategory)
       .filter(t => !q || (t.note || "").toLowerCase().includes(q.toLowerCase()) || (CAT_MAP[t.category]?.label || "").toLowerCase().includes(q.toLowerCase()))
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [store, filterMonth, filterType, q]);
+  }, [store, filterMonth, filterType, filterCategory, q]);
 
   const del = (id) => {
     update(s => ({ transactions: s.transactions.filter(t => t.id !== id) }));
@@ -707,6 +746,10 @@ function Transactions({ store, update, initialFilter }) {
           <option value="">All types</option>
           <option value="income">Income</option>
           <option value="expense">Expense</option>
+        </select>
+        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="bg-transparent border border-rule px-3 py-2 text-xs uppercase tracking-widest text-graphite md:w-48" data-testid="filter-category">
+          <option value="">All categories</option>
+          {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
       </div>
 
@@ -1485,11 +1528,7 @@ function NetWorth({ store, update, jumpTo }) {
           </form>
           <div className="divide-y divide-rule">
             {(store.assets || []).map(a => (
-              <div key={a.id} className="flex items-center gap-2 py-2" data-testid={`asset-${a.id}`}>
-                <div className="flex-1 truncate">{a.name}</div>
-                <div className="font-serif text-lg tabular-nums text-moss">{fmt(a.value, cur)}</div>
-                <button onClick={() => rmAsset(a.id)} className="p-1 hover:bg-stone2"><Trash2 size={12} className="text-graphite" /></button>
-              </div>
+              <NetWorthInvestmentRow key={a.id} asset={a} cur={cur} update={update} onDelete={() => rmAsset(a.id)} />
             ))}
             {(store.assets || []).length === 0 && <div className="text-graphite italic text-sm py-4 text-center">Nothing yet.</div>}
           </div>
@@ -1523,26 +1562,67 @@ function NetWorth({ store, update, jumpTo }) {
   );
 }
 
+function NetWorthInvestmentRow({ asset, cur, update, onDelete }) {
+  const [sell, setSell] = useState("");
+  const doSell = (e) => {
+    e && e.preventDefault();
+    const amt = parseFloat(sell);
+    if (!amt || amt <= 0) return toast.error("Type an amount above 0.");
+    if (amt > asset.value) return toast.error(`Can't sell more than the current value ${fmtDec(asset.value, cur)}.`);
+    update(s => ({
+      assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value - amt).toFixed(2) } : a),
+      transactions: [
+        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), note: `Sold from ${asset.name}` },
+        ...s.transactions,
+      ],
+    }));
+    setSell("");
+    toast.success(`Sold ${fmtDec(amt, cur)} of "${asset.name}" → recorded as income.`, { description: `Investment balance now ${fmtDec(asset.value - amt, cur)}` });
+  };
+  return (
+    <div className="flex items-center gap-2 py-2 flex-wrap md:flex-nowrap" data-testid={`asset-${asset.id}`}>
+      <div className="flex-1 min-w-0 truncate">{asset.name}</div>
+      <div className="font-serif text-lg tabular-nums text-moss">{fmt(asset.value, cur)}</div>
+      <form onSubmit={doSell} className="flex items-center gap-1 shrink-0">
+        <input type="number" step="0.01" min="0" value={sell} onChange={e => setSell(e.target.value)} placeholder="Sell"
+          className="w-20 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
+          data-testid={`nw-sell-input-${asset.id}`} />
+        <button type="submit" disabled={!sell} className="border border-moss text-moss hover:bg-moss hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`nw-sell-btn-${asset.id}`} title="Reduce investment AND record as income">→ Income</button>
+      </form>
+      <button onClick={onDelete} className="p-1 hover:bg-stone2" data-testid={`del-asset-${asset.id}`}><Trash2 size={12} className="text-graphite" /></button>
+    </div>
+  );
+}
+
 function NetWorthDebtRow({ debt, cur, update, onDelete }) {
   const [pay, setPay] = useState("");
-  const payDown = (e) => {
+  const doPay = (linkCash) => (e) => {
     e && e.preventDefault();
     const amt = parseFloat(pay);
     if (!amt || amt <= 0) return toast.error("Type an amount above 0.");
     if (amt > debt.value) return toast.error(`Payment can't exceed balance of ${fmtDec(debt.value, cur)}.`);
-    update(s => ({ debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) }));
+    update(s => {
+      const patch = { debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) };
+      if (linkCash) {
+        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), note: `Debt payment: ${debt.name}` };
+        patch.transactions = [txn, ...s.transactions];
+      }
+      return patch;
+    });
     setPay("");
-    toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}". Balance now ${fmtDec(debt.value - amt, cur)}.`);
+    if (linkCash) toast.success(`Settled ${fmtDec(amt, cur)} on "${debt.name}" from income. Balance now ${fmtDec(debt.value - amt, cur)}.`);
+    else toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}". Balance now ${fmtDec(debt.value - amt, cur)}.`);
   };
   return (
     <div className="flex items-center gap-2 py-2 flex-wrap md:flex-nowrap" data-testid={`debt-${debt.id}`}>
       <div className="flex-1 min-w-0 truncate">{debt.name}</div>
       <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(debt.value, cur)}</div>
-      <form onSubmit={payDown} className="flex items-center gap-1 shrink-0">
-        <input type="number" step="0.01" min="0" value={pay} onChange={e => setPay(e.target.value)} placeholder="Pay"
+      <form onSubmit={doPay(false)} className="flex items-center gap-1 shrink-0">
+        <input type="number" step="0.01" min="0" value={pay} onChange={e => setPay(e.target.value)} placeholder="Amt"
           className="w-20 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
           data-testid={`nw-pay-input-${debt.id}`} />
-        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`nw-pay-btn-${debt.id}`}>Pay</button>
+        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`nw-pay-btn-${debt.id}`} title="Reduce balance only (no cash impact)">Pay</button>
+        <button type="button" onClick={doPay(true)} disabled={!pay} className="border border-ink text-ink hover:bg-ink hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`nw-settle-btn-${debt.id}`} title="Reduce balance AND record an expense from income">Settle</button>
       </form>
       <button onClick={onDelete} className="p-1 hover:bg-stone2" data-testid={`del-debt-${debt.id}`}><Trash2 size={12} className="text-graphite" /></button>
     </div>
@@ -1731,27 +1811,23 @@ function BalanceSheet({ store, jumpTo, update }) {
           </button>
 
           {/* Investments (independent math) */}
-          <button
-            type="button"
-            onClick={() => jumpTo && jumpTo("networth")}
-            className="w-full text-left p-6 md:p-8 hover:bg-moss/10 transition-colors cursor-pointer group"
-            data-testid="bs-click-investments"
-            title="Click to manage investments in Net Worth tab"
-          >
+          <div className="p-6 md:p-8" data-testid="bs-investments-section">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-moss">
                 <PiggyBank size={12} /> Investments <span className="text-[10px] normal-case tracking-normal text-graphite/60">(own math)</span>
-                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
               </div>
-              <div className="font-serif text-lg tabular-nums text-moss">{fmt(report.totalInvestments, cur)}</div>
+              <div className="flex items-center gap-3">
+                <div className="font-serif text-lg tabular-nums text-moss">{fmt(report.totalInvestments, cur)}</div>
+                <button type="button" onClick={() => jumpTo && jumpTo("networth")} className="text-[10px] uppercase tracking-widest text-moss hover:text-ink transition-colors" data-testid="bs-click-investments">Manage →</button>
+              </div>
             </div>
             {report.investments.length === 0 && (
               <p className="text-graphite italic text-sm">Add ETFs, savings, property in the Net Worth tab.</p>
             )}
             {report.investments.map((a) => (
-              <StatementRow key={a.id} label={a.name} value={a.value} cur={cur} indent />
+              <InvestmentRowWithSell key={a.id} asset={a} cur={cur} update={update} />
             ))}
-          </button>
+          </div>
 
           {/* Total */}
           <button
@@ -1854,35 +1930,76 @@ function BalanceSheet({ store, jumpTo, update }) {
 // Debt row on the Balance Sheet with an inline manual "Pay" input.
 // Typing an amount and hitting Enter (or Pay) reduces the debt balance directly.
 // Does NOT create an expense transaction — the user handles cash separately.
+// Investment row on the Balance Sheet with an inline manual "Sell" input.
+// Selling reduces the investment value AND creates an income transaction
+// (category=investments) so it flows into cash / Investment returns.
+function InvestmentRowWithSell({ asset, cur, update }) {
+  const [sell, setSell] = useState("");
+  const doSell = (e) => {
+    e && e.preventDefault();
+    const amt = parseFloat(sell);
+    if (!amt || amt <= 0) return toast.error("Type an amount above 0.");
+    if (amt > asset.value) return toast.error(`Can't sell more than the current value ${fmtDec(asset.value, cur)}.`);
+    update(s => ({
+      assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value - amt).toFixed(2) } : a),
+      transactions: [
+        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), note: `Sold from ${asset.name}` },
+        ...s.transactions,
+      ],
+    }));
+    setSell("");
+    toast.success(`Sold ${fmtDec(amt, cur)} of "${asset.name}" → recorded as income.`, { description: `Investment balance now ${fmtDec(asset.value - amt, cur)}` });
+  };
+  return (
+    <div className="flex items-center gap-2 py-2 border-b border-rule last:border-b-0 flex-wrap md:flex-nowrap" data-testid={`bs-asset-${asset.id}`}>
+      <div className="flex-1 min-w-[110px] text-sm text-graphite truncate">{asset.name}</div>
+      <div className="font-serif tabular-nums text-base text-moss">{fmt(asset.value, cur)}</div>
+      <form onSubmit={doSell} className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+        <input type="number" step="0.01" min="0" value={sell} onChange={e => setSell(e.target.value)} placeholder="Sell"
+          className="w-16 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
+          data-testid={`bs-sell-input-${asset.id}`} />
+        <button type="submit" disabled={!sell} className="border border-moss text-moss hover:bg-moss hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`bs-sell-btn-${asset.id}`} title="Reduce investment AND record as income">→ Income</button>
+      </form>
+    </div>
+  );
+}
+
 function DebtRowWithPay({ debt, cur, update }) {
   const [pay, setPay] = useState("");
-  const submit = (e) => {
+  const doPay = (linkCash) => (e) => {
     e && e.preventDefault();
     const amt = parseFloat(pay);
     if (!amt || amt <= 0) return toast.error("Type a payment amount above 0.");
     if (amt > debt.value) return toast.error(`Payment can't exceed balance of ${fmtDec(debt.value, cur)}.`);
-    update(s => ({
-      debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d),
-    }));
+    update(s => {
+      const patch = { debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) };
+      if (linkCash) {
+        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), note: `Debt payment: ${debt.name}` };
+        patch.transactions = [txn, ...s.transactions];
+      }
+      return patch;
+    });
     setPay("");
-    toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}".`, { description: `Balance now ${fmtDec(debt.value - amt, cur)}` });
+    if (linkCash) toast.success(`Settled ${fmtDec(amt, cur)} on "${debt.name}" from income.`, { description: `An expense was recorded so your cash flow reflects it.` });
+    else toast.success(`Paid ${fmtDec(amt, cur)} toward "${debt.name}".`, { description: `Balance now ${fmtDec(debt.value - amt, cur)} · no cash impact` });
   };
   return (
-    <div className="flex items-center gap-2 py-2 border-b border-rule last:border-b-0" data-testid={`bs-debt-${debt.id}`}>
-      <div className="flex-1 text-sm text-graphite truncate">{debt.name}</div>
+    <div className="flex items-center gap-2 py-2 border-b border-rule last:border-b-0 flex-wrap md:flex-nowrap" data-testid={`bs-debt-${debt.id}`}>
+      <div className="flex-1 min-w-[110px] text-sm text-graphite truncate">{debt.name}</div>
       <div className="font-serif tabular-nums text-base text-[#9B2C2C]">−{fmt(debt.value, cur)}</div>
-      <form onSubmit={submit} className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+      <form onSubmit={doPay(false)} className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
         <input
           type="number"
           step="0.01"
           min="0"
           value={pay}
           onChange={e => setPay(e.target.value)}
-          placeholder="Pay"
-          className="w-20 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
+          placeholder="Amt"
+          className="w-16 border border-rule bg-white px-2 py-1 text-xs font-serif tabular-nums focus:outline-none focus:border-ink"
           data-testid={`bs-pay-input-${debt.id}`}
         />
-        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-3 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`bs-pay-btn-${debt.id}`}>Pay</button>
+        <button type="submit" disabled={!pay} className="border border-[#9B2C2C] text-[#9B2C2C] hover:bg-[#9B2C2C] hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`bs-pay-btn-${debt.id}`} title="Reduce balance only (no cash impact)">Pay</button>
+        <button type="button" onClick={doPay(true)} disabled={!pay} className="border border-ink text-ink hover:bg-ink hover:text-paper transition-colors px-2 py-1 uppercase tracking-widest text-[10px] disabled:opacity-40" data-testid={`bs-settle-btn-${debt.id}`} title="Reduce balance AND record an expense from income">Settle</button>
       </form>
     </div>
   );
