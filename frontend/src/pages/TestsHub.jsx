@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Zap, BookOpen, Brain, Activity, Briefcase, Heart, Globe, Film, ArrowRight } from "lucide-react";
+import { Zap, BookOpen, Brain, Activity, Briefcase, Heart, Globe, Film, ArrowRight, Wallet } from "lucide-react";
 
 const TESTS = [
   { id: "reading-speed", title: "Reading Speed", desc: "Measure your reading rate and comprehension accuracy.", time: "3 min", icon: Zap, category: "Cognitive" },
@@ -22,6 +22,32 @@ export default function TestsHub() {
           A growing library of cognitive, personality, and knowledge assessments — take any of them anytime.
         </p>
       </div>
+
+      <Link
+        to="/finance"
+        className="rr-card-hover group block bg-ink text-paper border border-ink rounded-sm p-8 mb-8 hover:bg-mossdark transition-colors"
+        data-testid="finance-featured-card"
+      >
+        <div className="grid md:grid-cols-12 gap-6 items-center">
+          <div className="md:col-span-1 flex md:justify-center">
+            <div className="p-3 border border-paper/30 rounded-sm">
+              <Wallet size={22} />
+            </div>
+          </div>
+          <div className="md:col-span-9">
+            <div className="overline text-paper/70 mb-2">Featured tool · Private & local</div>
+            <h2 className="font-serif text-3xl md:text-4xl tracking-tight text-paper">Personal Financial Manager.</h2>
+            <p className="text-paper/70 mt-2 text-sm md:text-base max-w-2xl">
+              Track transactions, set monthly budgets, run loan, savings, debt-payoff and goal calculators, and forecast your balance. All data stays in your browser — nothing uploaded.
+            </p>
+          </div>
+          <div className="md:col-span-2 flex md:justify-end">
+            <span className="inline-flex items-center gap-2 border border-paper/50 px-4 py-2 uppercase tracking-widest text-xs group-hover:border-paper transition-colors">
+              Open <ArrowRight size={12} />
+            </span>
+          </div>
+        </div>
+      </Link>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="tests-grid">
         {TESTS.map((t) => {

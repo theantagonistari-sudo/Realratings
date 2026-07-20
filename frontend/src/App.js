@@ -13,6 +13,7 @@ import SubmitProperty from "@/pages/SubmitProperty";
 import Admin from "@/pages/Admin";
 import AdminLogin from "@/pages/AdminLogin";
 import Profile from "@/pages/Profile";
+import Finance from "@/pages/Finance";
 import TestsHub from "@/pages/TestsHub";
 import ReadingSpeed from "@/pages/tests/ReadingSpeed";
 import ReadingStyleImported from "@/pages/tests/ReadingStyleImported";
@@ -39,6 +40,7 @@ function AppRouter() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/tests" element={<TestsHub />} />
+          <Route path="/finance" element={<Finance />} />
           <Route path="/tests/reading-speed" element={<ReadingSpeed />} />
           <Route path="/tests/reading-style-2" element={<ReadingStyleImported />} />
           <Route path="/tests/personality" element={<Personality />} />

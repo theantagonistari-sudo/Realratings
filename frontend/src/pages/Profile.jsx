@@ -167,6 +167,15 @@ export default function Profile() {
             )}
           </div>
 
+          <div className="bg-ink text-paper p-6" data-testid="profile-finance-card">
+            <div className="overline text-paper/70 mb-2 flex items-center gap-2">💷 Personal Finance</div>
+            <p className="font-serif text-2xl leading-snug mb-3">Financial Manager.</p>
+            <p className="text-paper/70 text-sm mb-5">Track transactions, budgets, calculators & forecast. Data stays in your browser.</p>
+            <Link to="/finance" className="inline-flex items-center gap-2 bg-paper text-ink px-4 py-2 uppercase tracking-widest text-xs hover:bg-stone2 transition-colors" data-testid="btn-open-finance">
+              Open manager →
+            </Link>
+          </div>
+
           <div className="bg-stone2 border border-rule p-6">
             <div className="overline text-moss mb-2">More assessments</div>
             <p className="font-serif text-lg leading-snug text-ink mb-4">Big Five personality, cognitive analysis, career alignment, general knowledge & more.</p>
