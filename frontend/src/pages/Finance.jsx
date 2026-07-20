@@ -1271,16 +1271,16 @@ function NetWorth({ store, update }) {
 }
 
 
-// ---------- Balance Sheet (monthly snapshot) ----------
+// ---------- Balance Sheet (two-sided monthly view) ----------
+// Side 1: Income vs Expenses (cash flow this month)
+// Side 2: Investments vs Debts (position as of month-end)
 function BalanceSheet({ store }) {
   const cur = store.currency;
 
-  // Build the list of months available: from earliest txn to current, plus "as of today"
   const months = useMemo(() => {
     const set = new Set([thisMonth()]);
     store.transactions.forEach(t => { if (t.date) set.add(monthKey(t.date)); });
-    const arr = Array.from(set).filter(Boolean).sort();
-    return arr;
+    return Array.from(set).filter(Boolean).sort();
   }, [store.transactions]);
 
   const [asOf, setAsOf] = useState(thisMonth());
@@ -1289,11 +1289,16 @@ function BalanceSheet({ store }) {
     return new Date(y, m, 0).toISOString().slice(0, 10);
   }, [asOf]);
 
+  const monthLabel = useMemo(() => {
+    const [y, m] = asOf.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleString("default", { month: "long", year: "numeric" });
+  }, [asOf]);
+
   const report = useMemo(() => {
     const upTo = (store.transactions || []).filter(t => t.date && t.date <= endOfMonth);
     const monthTxns = upTo.filter(t => monthKey(t.date) === asOf);
 
-    // Income statement (period = selected month)
+    // Cash flow (period)
     const incomeByCat = {}, expenseByCat = {};
     monthTxns.forEach(t => {
       const bucket = t.type === "income" ? incomeByCat : expenseByCat;
@@ -1303,73 +1308,69 @@ function BalanceSheet({ store }) {
     const totalExpense = Object.values(expenseByCat).reduce((a, b) => a + b, 0);
     const netIncome = totalIncome - totalExpense;
 
-    // Balance sheet as of endOfMonth
-    // Cash = starting balance + all txns up to endOfMonth
+    // Position (as of month-end)
     const cash = (store.settings?.startingBalance || 0) +
       upTo.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
 
-    // Assets/debts snapshots come from store (not time-indexed) — treat as current standing
-    const otherAssets = (store.assets || []).map(a => ({ name: a.name, value: a.value || 0 }));
-    const totalOtherAssets = otherAssets.reduce((a, x) => a + x.value, 0);
-    const totalAssets = Math.max(0, cash) + totalOtherAssets;
-    const overdraft = Math.min(0, cash); // negative cash treated as liability
+    const otherInvestments = (store.assets || []).map(a => ({ name: a.name, value: a.value || 0 }));
+    const totalOtherInvestments = otherInvestments.reduce((a, x) => a + x.value, 0);
+    const totalInvestments = Math.max(0, cash) + totalOtherInvestments;
+    const overdraft = Math.min(0, cash);
 
     const debts = (store.debts || []).map(d => ({ name: d.name, value: d.value || 0, rate: d.rate || 0 }));
     const totalDebts = debts.reduce((a, x) => a + x.value, 0) + Math.abs(overdraft);
-    const equity = totalAssets - totalDebts;
+    const netWorth = totalInvestments - totalDebts;
 
     return {
       incomeByCat, expenseByCat, totalIncome, totalExpense, netIncome,
-      cash, otherAssets, totalOtherAssets, totalAssets, debts, totalDebts, equity, overdraft,
+      cash, otherInvestments, totalOtherInvestments, totalInvestments,
+      debts, totalDebts, netWorth, overdraft,
     };
   }, [store, asOf, endOfMonth]);
 
-  const monthLabel = useMemo(() => {
-    const [y, m] = asOf.split("-").map(Number);
-    return new Date(y, m - 1, 1).toLocaleString("default", { month: "long", year: "numeric" });
-  }, [asOf]);
-
   const exportCsv = () => {
     const rows = [
-      ["Section", "Item", "Amount"],
-      ["Balance Sheet — as of", endOfMonth, ""],
-      ["Assets", "Cash on hand", Math.max(0, report.cash).toFixed(2)],
-      ...report.otherAssets.map(a => ["Assets", a.name, a.value.toFixed(2)]),
-      ["", "Total Assets", report.totalAssets.toFixed(2)],
+      ["Monthly Financial Statement", monthLabel, ""],
       ["", "", ""],
-      ...(report.overdraft < 0 ? [["Liabilities", "Cash overdraft", Math.abs(report.overdraft).toFixed(2)]] : []),
-      ...report.debts.map(d => ["Liabilities", `${d.name}${d.rate ? ` (${d.rate}% APR)` : ""}`, d.value.toFixed(2)]),
-      ["", "Total Liabilities", report.totalDebts.toFixed(2)],
-      ["", "", ""],
-      ["", "Owner's Equity", report.equity.toFixed(2)],
-      ["", "", ""],
-      [`Income Statement — ${monthLabel}`, "", ""],
+      ["CASH FLOW", "", ""],
       ...Object.entries(report.incomeByCat).map(([k, v]) => ["Income", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
       ["", "Total Income", report.totalIncome.toFixed(2)],
       ...Object.entries(report.expenseByCat).map(([k, v]) => ["Expenses", (CAT_MAP[k] || { label: k }).label, v.toFixed(2)]),
       ["", "Total Expenses", report.totalExpense.toFixed(2)],
       ["", "Net Income", report.netIncome.toFixed(2)],
+      ["", "", ""],
+      [`POSITION as of ${endOfMonth}`, "", ""],
+      ["Investments", "Cash on hand", Math.max(0, report.cash).toFixed(2)],
+      ...report.otherInvestments.map(a => ["Investments", a.name, a.value.toFixed(2)]),
+      ["", "Total Investments", report.totalInvestments.toFixed(2)],
+      ...(report.overdraft < 0 ? [["Debts", "Cash overdraft", Math.abs(report.overdraft).toFixed(2)]] : []),
+      ...report.debts.map(d => ["Debts", `${d.name}${d.rate ? ` (${d.rate}% APR)` : ""}`, d.value.toFixed(2)]),
+      ["", "Total Debts", report.totalDebts.toFixed(2)],
+      ["", "Net Worth", report.netWorth.toFixed(2)],
     ];
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a");
-    a.href = url; a.download = `balance-sheet-${asOf}.csv`; a.click();
+    a.href = url; a.download = `financial-statement-${asOf}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
+  const incomeWins = report.netIncome >= 0;
+  const positionWins = report.netWorth >= 0;
+
   return (
-    <div className="space-y-8" data-testid="balancesheet-content">
+    <div className="space-y-10" data-testid="balancesheet-content">
       {/* Header */}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <div className="overline text-moss mb-2 flex items-center gap-2"><Landmark size={12} /> Financial statement</div>
-          <h2 className="font-serif text-3xl md:text-4xl tracking-tight">Balance sheet.</h2>
-          <p className="text-graphite mt-2 max-w-2xl">A month-end snapshot of what you own, what you owe, and the equity in between — plus the income statement for the period.</p>
+          <div className="overline text-moss mb-2 flex items-center gap-2"><Landmark size={12} /> Monthly Financial Statement</div>
+          <h2 className="font-serif text-3xl md:text-4xl tracking-tight">Two sides of the ledger.</h2>
+          <p className="text-graphite mt-2 max-w-2xl">Cash flow versus position — what moved this month, and what you're standing on at month-end.</p>
         </div>
         <div className="flex gap-3 items-center flex-wrap">
           <label className="inline-flex items-center gap-2 border border-ink rounded-sm px-3 py-2">
             <CalIcon size={12} className="text-graphite" />
-            <span className="overline">As of</span>
+            <span className="overline">Month</span>
             <select value={asOf} onChange={e => setAsOf(e.target.value)} className="bg-transparent focus:outline-none font-serif text-base" data-testid="bs-month">
               {months.map(m => {
                 const [y, mm] = m.split("-").map(Number);
@@ -1384,128 +1385,127 @@ function BalanceSheet({ store }) {
         </div>
       </div>
 
-      {/* Statement paper */}
-      <div className="bg-white border border-ink rounded-sm p-6 md:p-10">
-        <div className="text-center mb-8 pb-6 border-b border-rule">
-          <div className="overline text-graphite mb-2">Real Ratings Personal Finance</div>
-          <div className="font-serif text-3xl md:text-4xl tracking-tighter">Balance Sheet</div>
-          <div className="text-graphite mt-1 text-sm">As of {new Date(endOfMonth).toLocaleDateString("default", { year: "numeric", month: "long", day: "numeric" })}</div>
+      {/* === SIDE 1: Income vs Expenses === */}
+      <section data-testid="bs-cashflow">
+        <div className="mb-4 flex items-center gap-3 flex-wrap">
+          <div className="overline text-ink">Side 1 · Cash flow</div>
+          <div className="text-graphite text-sm">— for {monthLabel}</div>
         </div>
-
-        <div className="grid md:grid-cols-2 gap-10">
-          {/* Assets */}
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
-              <div className="overline text-ink">Assets</div>
+        <div className="grid md:grid-cols-2 gap-0 border border-ink rounded-sm overflow-hidden">
+          {/* Income (left) */}
+          <div className="bg-white p-6 md:p-8 border-b md:border-b-0 md:border-r border-ink">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-rule">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={14} className="text-moss" />
+                <span className="overline text-moss">Income</span>
+              </div>
               <div className="overline text-graphite">{cur}</div>
             </div>
-            <StatementRow label="Cash on hand" value={Math.max(0, report.cash)} cur={cur} testid="bs-cash" />
-            {report.otherAssets.length > 0 && (
-              <div className="mt-4">
-                <div className="overline text-graphite mb-2">Other assets</div>
-                {report.otherAssets.map((a, i) => <StatementRow key={i} label={a.name} value={a.value} cur={cur} indent />)}
-              </div>
-            )}
-            {report.otherAssets.length === 0 && (
-              <p className="text-graphite italic text-sm mt-4">Add investments & property in Net Worth to see them here.</p>
-            )}
-            <StatementRow label="Total Assets" value={report.totalAssets} cur={cur} total testid="bs-total-assets" />
+            <div className="font-serif text-5xl md:text-6xl tracking-tighter tabular-nums text-moss mb-6" data-testid="bs-total-income-hero">
+              {fmt(report.totalIncome, cur)}
+            </div>
+            {Object.entries(report.incomeByCat).length === 0 && <p className="text-graphite italic text-sm">No income this month.</p>}
+            {Object.entries(report.incomeByCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent />
+            ))}
           </div>
 
-          {/* Liabilities & Equity */}
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
-              <div className="overline text-ink">Liabilities</div>
+          {/* Expenses (right) */}
+          <div className="bg-stone2/40 p-6 md:p-8">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-rule">
+              <div className="flex items-center gap-2">
+                <TrendingDown size={14} className="text-[#9B2C2C]" />
+                <span className="overline text-[#9B2C2C]">Expenses</span>
+              </div>
               <div className="overline text-graphite">{cur}</div>
             </div>
+            <div className="font-serif text-5xl md:text-6xl tracking-tighter tabular-nums text-[#9B2C2C] mb-6" data-testid="bs-total-expense-hero">
+              −{fmt(report.totalExpense, cur)}
+            </div>
+            {Object.entries(report.expenseByCat).length === 0 && <p className="text-graphite italic text-sm">No expenses this month.</p>}
+            {Object.entries(report.expenseByCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent negative />
+            ))}
+          </div>
+        </div>
+        {/* Verdict bar */}
+        <div className={`mt-0 p-5 md:p-6 flex items-center justify-between gap-4 flex-wrap ${incomeWins ? "bg-moss" : "bg-[#9B2C2C]"} text-paper`} data-testid="bs-net-income">
+          <div>
+            <div className="overline text-paper/70">Net for {monthLabel}</div>
+            <div className="text-paper/80 text-sm mt-1">{incomeWins ? "You earned more than you spent." : "You spent more than you earned."}</div>
+          </div>
+          <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none">
+            {incomeWins ? "+" : "−"}{fmt(Math.abs(report.netIncome), cur)}
+          </div>
+        </div>
+      </section>
+
+      {/* === SIDE 2: Investments vs Debts === */}
+      <section data-testid="bs-position">
+        <div className="mb-4 flex items-center gap-3 flex-wrap">
+          <div className="overline text-ink">Side 2 · Position</div>
+          <div className="text-graphite text-sm">— as of {new Date(endOfMonth).toLocaleDateString("default", { month: "long", day: "numeric", year: "numeric" })}</div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-0 border border-ink rounded-sm overflow-hidden">
+          {/* Investments (left) */}
+          <div className="bg-white p-6 md:p-8 border-b md:border-b-0 md:border-r border-ink">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-rule">
+              <div className="flex items-center gap-2">
+                <PiggyBank size={14} className="text-moss" />
+                <span className="overline text-moss">Investments</span>
+              </div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            <div className="font-serif text-5xl md:text-6xl tracking-tighter tabular-nums text-moss mb-6" data-testid="bs-total-invest-hero">
+              {fmt(report.totalInvestments, cur)}
+            </div>
+            <StatementRow label="Cash on hand" value={Math.max(0, report.cash)} cur={cur} indent testid="bs-cash" />
+            {report.otherInvestments.map((a, i) => (
+              <StatementRow key={i} label={a.name} value={a.value} cur={cur} indent />
+            ))}
+            {report.otherInvestments.length === 0 && (
+              <p className="text-graphite italic text-sm mt-4">Add ETFs, savings, property in the Net Worth tab to see them here.</p>
+            )}
+          </div>
+
+          {/* Debts (right) */}
+          <div className="bg-stone2/40 p-6 md:p-8">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-rule">
+              <div className="flex items-center gap-2">
+                <TrendingDown size={14} className="text-[#9B2C2C]" />
+                <span className="overline text-[#9B2C2C]">Debts</span>
+              </div>
+              <div className="overline text-graphite">{cur}</div>
+            </div>
+            <div className="font-serif text-5xl md:text-6xl tracking-tighter tabular-nums text-[#9B2C2C] mb-6" data-testid="bs-total-debts-hero">
+              −{fmt(report.totalDebts, cur)}
+            </div>
             {report.overdraft < 0 && (
-              <StatementRow label="Cash overdraft" value={Math.abs(report.overdraft)} cur={cur} negative />
+              <StatementRow label="Cash overdraft" value={Math.abs(report.overdraft)} cur={cur} indent negative />
             )}
             {report.debts.map((d, i) => (
               <StatementRow key={i} label={`${d.name}${d.rate ? ` · ${d.rate}% APR` : ""}`} value={d.value} cur={cur} indent negative />
             ))}
             {report.debts.length === 0 && report.overdraft >= 0 && (
-              <p className="text-graphite italic text-sm">No liabilities recorded. Debt-free is a beautiful thing.</p>
+              <p className="text-graphite italic text-sm mt-4">No debts recorded. Add liabilities in the Net Worth tab if you have any.</p>
             )}
-            <StatementRow label="Total Liabilities" value={report.totalDebts} cur={cur} total negative testid="bs-total-liab" />
-
-            <div className="mt-8 pt-4 border-t border-ink">
-              <div className="overline text-ink mb-4">Owner's Equity</div>
-              <div className={`p-4 rounded-sm ${report.equity >= 0 ? "bg-moss text-paper" : "bg-[#9B2C2C] text-paper"}`} data-testid="bs-equity">
-                <div className="overline text-paper/70">Net worth</div>
-                <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none">{fmt(report.equity, cur)}</div>
-                <div className="text-paper/70 text-xs mt-2">{report.equity >= 0 ? "Assets exceed liabilities." : "Liabilities exceed assets — focus on reducing debt."}</div>
-              </div>
-            </div>
           </div>
         </div>
-
-        {/* Accounting identity */}
-        <div className="mt-10 pt-6 border-t border-rule flex items-center justify-center gap-3 text-xs text-graphite flex-wrap">
-          <span className="font-serif text-base text-ink">{fmt(report.totalAssets, cur)}</span>
-          <span>Assets</span>
-          <span>=</span>
-          <span className="font-serif text-base text-ink">{fmt(report.totalDebts, cur)}</span>
-          <span>Liabilities</span>
-          <span>+</span>
-          <span className="font-serif text-base text-ink">{fmt(report.equity, cur)}</span>
-          <span>Equity</span>
-        </div>
-      </div>
-
-      {/* Income Statement */}
-      <div className="bg-white border border-ink rounded-sm p-6 md:p-10" data-testid="bs-income-statement">
-        <div className="text-center mb-8 pb-6 border-b border-rule">
-          <div className="overline text-graphite mb-2">For the period</div>
-          <div className="font-serif text-3xl md:text-4xl tracking-tighter">Income Statement</div>
-          <div className="text-graphite mt-1 text-sm">{monthLabel}</div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-10">
+        {/* Net worth verdict */}
+        <div className={`p-5 md:p-6 flex items-center justify-between gap-4 flex-wrap ${positionWins ? "bg-moss" : "bg-[#9B2C2C]"} text-paper`} data-testid="bs-net-worth">
           <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
-              <div className="overline text-moss">Income</div>
-              <div className="overline text-graphite">{cur}</div>
-            </div>
-            {Object.entries(report.incomeByCat).length === 0 && <p className="text-graphite italic text-sm">No income this month.</p>}
-            {Object.entries(report.incomeByCat).map(([k, v]) => (
-              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent />
-            ))}
-            <StatementRow label="Total Income" value={report.totalIncome} cur={cur} total testid="bs-total-income" />
+            <div className="overline text-paper/70">Net worth</div>
+            <div className="text-paper/80 text-sm mt-1">{positionWins ? "Investments exceed debts — you're building." : "Debts exceed investments — focus on paying down."}</div>
           </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-ink">
-              <div className="overline text-[#9B2C2C]">Expenses</div>
-              <div className="overline text-graphite">{cur}</div>
-            </div>
-            {Object.entries(report.expenseByCat).length === 0 && <p className="text-graphite italic text-sm">No expenses this month.</p>}
-            {Object.entries(report.expenseByCat).map(([k, v]) => (
-              <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent negative />
-            ))}
-            <StatementRow label="Total Expenses" value={report.totalExpense} cur={cur} total negative testid="bs-total-expense" />
+          <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none">
+            {positionWins ? "" : "−"}{fmt(Math.abs(report.netWorth), cur)}
           </div>
         </div>
-
-        <div className={`mt-10 p-6 rounded-sm text-paper ${report.netIncome >= 0 ? "bg-moss" : "bg-[#9B2C2C]"}`} data-testid="bs-net-income">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <div className="overline text-paper/70">Net income for {monthLabel}</div>
-              <div className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter leading-none mt-1">
-                {report.netIncome >= 0 ? "" : "−"}{fmt(Math.abs(report.netIncome), cur)}
-              </div>
-            </div>
-            <div className="text-paper/80 text-sm max-w-xs">
-              {report.netIncome >= 0
-                ? "You saved money this month. Consider moving the surplus into investments."
-                : "You spent more than you earned. Revisit budgets in the Budgets tab."}
-            </div>
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }
+
 
 function StatementRow({ label, value, cur, indent, negative, total, testid }) {
   return (
