@@ -131,10 +131,15 @@ function classifyLine(raw) {
 export default function Finance() {
   const [store, setStore] = useState(loadStore);
   const [tab, setTab] = useState("dashboard");
+  const [txnFilter, setTxnFilter] = useState(null); // {month?, type?} — consumed by Transactions tab
 
   useEffect(() => { saveStore(store); }, [store]);
 
   const update = (patch) => setStore(prev => ({ ...prev, ...(typeof patch === "function" ? patch(prev) : patch) }));
+  const jumpTo = (target, filter) => {
+    if (filter) setTxnFilter(filter);
+    setTab(target);
+  };
 
   return (
     <div className="bg-paper min-h-[calc(100vh-5rem)]">
@@ -159,11 +164,11 @@ export default function Finance() {
       {/* Body */}
       <section className="max-w-6xl mx-auto px-6 md:px-12 py-10">
         {tab === "dashboard" && <Dashboard store={store} update={update} />}
-        {tab === "transactions" && <Transactions store={store} update={update} />}
+        {tab === "transactions" && <Transactions store={store} update={update} initialFilter={txnFilter} />}
         {tab === "import" && <ImportPanel store={store} update={update} />}
         {tab === "budgets" && <Budgets store={store} update={update} />}
         {tab === "networth" && <NetWorth store={store} update={update} />}
-        {tab === "balancesheet" && <BalanceSheet store={store} />}
+        {tab === "balancesheet" && <BalanceSheet store={store} jumpTo={jumpTo} />}
         {tab === "calculators" && <Calculators cur={store.currency} />}
         {tab === "forecast" && <Forecast store={store} update={update} />}
       </section>
@@ -223,6 +228,7 @@ function TabBar({ tab, onChange }) {
 function Dashboard({ store, update }) {
   const cur = store.currency;
   const mk = thisMonth();
+  const [editing, setEditing] = useState(null);
 
   const stats = useMemo(() => {
     const monthTxns = store.transactions.filter(t => monthKey(t.date) === mk);
@@ -392,9 +398,21 @@ function Dashboard({ store, update }) {
           </div>
         </div>
         <div className="bg-white border border-rule">
-          {recent.map((t) => <TxnRow key={t.id} txn={t} cur={cur} />)}
+          {recent.map((t) => <TxnRow key={t.id} txn={t} cur={cur} onEdit={setEditing} onDelete={() => { update(s => ({ transactions: s.transactions.filter(x => x.id !== t.id) })); toast("Transaction removed."); }} />)}
         </div>
       </div>
+      {editing && (
+        <TxnDialog
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={(t) => {
+            update(s => ({ transactions: s.transactions.map(x => x.id === editing.id ? { ...x, ...t } : x) }));
+            setEditing(null);
+            toast.success("Transaction updated.");
+          }}
+          cur={cur}
+        />
+      )}
     </div>
   );
 }
@@ -528,12 +546,20 @@ function StartingBalance({ store, update }) {
 }
 
 // ---------- Transactions ----------
-function Transactions({ store, update }) {
+function Transactions({ store, update, initialFilter }) {
   const cur = store.currency;
   const [open, setOpen] = useState(false);
-  const [filterMonth, setFilterMonth] = useState("");
-  const [filterType, setFilterType] = useState("");
+  const [editing, setEditing] = useState(null); // txn being edited
+  const [filterMonth, setFilterMonth] = useState(initialFilter?.month || "");
+  const [filterType, setFilterType] = useState(initialFilter?.type || "");
   const [q, setQ] = useState("");
+
+  useEffect(() => {
+    if (initialFilter) {
+      if (initialFilter.month != null) setFilterMonth(initialFilter.month);
+      if (initialFilter.type != null) setFilterType(initialFilter.type);
+    }
+  }, [initialFilter]);
 
   const months = useMemo(() => {
     const s = new Set(store.transactions.map(t => monthKey(t.date)));
@@ -597,19 +623,36 @@ function Transactions({ store, update }) {
       <div className="bg-white border border-rule">
         {filtered.length === 0 ? (
           <div className="p-12 text-center text-graphite italic">No transactions match your filters.</div>
-        ) : filtered.map(t => <TxnRow key={t.id} txn={t} cur={cur} onDelete={() => del(t.id)} />)}
+        ) : filtered.map(t => <TxnRow key={t.id} txn={t} cur={cur} onDelete={() => del(t.id)} onEdit={setEditing} />)}
       </div>
 
       {open && <TxnDialog onClose={() => setOpen(false)} onSave={(t) => { update(s => ({ transactions: [{ ...t, id: uid() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }} cur={cur} />}
+      {editing && (
+        <TxnDialog
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={(t) => {
+            update(s => ({ transactions: s.transactions.map(x => x.id === editing.id ? { ...x, ...t } : x) }));
+            setEditing(null);
+            toast.success("Transaction updated.");
+          }}
+          cur={cur}
+        />
+      )}
     </div>
   );
 }
 
-function TxnRow({ txn, cur, onDelete }) {
+function TxnRow({ txn, cur, onDelete, onEdit }) {
   const cat = CAT_MAP[txn.category];
   const isIncome = txn.type === "income";
   return (
-    <div className="flex items-center gap-4 border-b border-rule last:border-b-0 p-4 group" data-testid={`txn-${txn.id}`}>
+    <div
+      className={`flex items-center gap-4 border-b border-rule last:border-b-0 p-4 group ${onEdit ? "cursor-pointer hover:bg-stone2/50 transition-colors" : ""}`}
+      onClick={onEdit ? () => onEdit(txn) : undefined}
+      role={onEdit ? "button" : undefined}
+      data-testid={`txn-${txn.id}`}
+    >
       <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0`} style={{ background: cat?.color || "#4A4A4A", color: "#F9F8F6" }}>
         {isIncome ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
       </div>
@@ -617,6 +660,7 @@ function TxnRow({ txn, cur, onDelete }) {
         <div className="flex items-center gap-3">
           <span className="font-serif text-lg text-ink">{cat?.label || txn.category}</span>
           <span className="text-xs text-graphite">{new Date(txn.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+          {onEdit && <span className="text-[10px] uppercase tracking-widest text-graphite/60 opacity-0 group-hover:opacity-100 transition-opacity">Click to edit</span>}
         </div>
         {txn.note && <div className="text-sm text-graphite mt-0.5 truncate">{txn.note}</div>}
       </div>
@@ -624,7 +668,11 @@ function TxnRow({ txn, cur, onDelete }) {
         {isIncome ? "+" : "−"}{fmtDec(txn.amount, cur)}
       </div>
       {onDelete && (
-        <button onClick={onDelete} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-stone2" data-testid={`del-txn-${txn.id}`}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-stone2"
+          data-testid={`del-txn-${txn.id}`}
+        >
           <Trash2 size={14} className="text-graphite" />
         </button>
       )}
@@ -632,12 +680,13 @@ function TxnRow({ txn, cur, onDelete }) {
   );
 }
 
-function TxnDialog({ onClose, onSave, cur }) {
-  const [type, setType] = useState("expense");
-  const [category, setCategory] = useState("food");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
+function TxnDialog({ onClose, onSave, cur, initial }) {
+  const isEdit = !!initial;
+  const [type, setType] = useState(initial?.type || "expense");
+  const [category, setCategory] = useState(initial?.category || "food");
+  const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : "");
+  const [date, setDate] = useState(initial?.date || new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState(initial?.note || "");
   const filtered = CATEGORIES.filter(c => c.type === type);
   const submit = (e) => {
     e.preventDefault();
@@ -649,13 +698,13 @@ function TxnDialog({ onClose, onSave, cur }) {
     <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-paper border border-ink max-w-md w-full" onClick={e => e.stopPropagation()} data-testid="txn-dialog">
         <div className="border-b border-rule px-6 py-4 flex items-center justify-between">
-          <h3 className="font-serif text-2xl">New transaction</h3>
+          <h3 className="font-serif text-2xl">{isEdit ? "Edit transaction" : "New transaction"}</h3>
           <button onClick={onClose} className="p-1 hover:bg-stone2"><X size={16} /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-5">
           <div className="grid grid-cols-2 gap-1 border border-rule p-1">
             {["expense", "income"].map(t => (
-              <button key={t} type="button" onClick={() => { setType(t); setCategory(CATEGORIES.find(c => c.type === t).id); }}
+              <button key={t} type="button" onClick={() => { setType(t); if (!CATEGORIES.find(c => c.id === category && c.type === t)) setCategory(CATEGORIES.find(c => c.type === t).id); }}
                 className={`py-2 uppercase tracking-widest text-xs transition-colors ${type === t ? "bg-ink text-paper" : "text-graphite hover:text-ink"}`}
                 data-testid={`type-${t}`}>
                 {t === "expense" ? "− Expense" : "+ Income"}
@@ -689,7 +738,7 @@ function TxnDialog({ onClose, onSave, cur }) {
           </div>
           <div className="flex justify-end gap-3 pt-2 border-t border-rule">
             <button type="button" onClick={onClose} className="border border-ink px-5 py-2.5 uppercase tracking-widest text-xs">Cancel</button>
-            <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-save-txn">Add transaction</button>
+            <button type="submit" className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="btn-save-txn">{isEdit ? "Save changes" : "Add transaction"}</button>
           </div>
         </form>
       </div>
@@ -1274,7 +1323,7 @@ function NetWorth({ store, update }) {
 // ---------- Balance Sheet — one unified two-column view ----------
 // LEFT (green): Investments + Cash on hand
 // RIGHT (red): Debts / Loans + Expenses (this month)
-function BalanceSheet({ store }) {
+function BalanceSheet({ store, jumpTo }) {
   const cur = store.currency;
 
   const months = useMemo(() => {
@@ -1397,10 +1446,17 @@ function BalanceSheet({ store }) {
           </div>
 
           {/* Investments */}
-          <div className="p-6 md:p-8 border-b border-rule">
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("networth")}
+            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-moss/10 transition-colors cursor-pointer group"
+            data-testid="bs-click-investments"
+            title="Click to manage investments in Net Worth tab"
+          >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-moss">
                 <PiggyBank size={12} /> Investments
+                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-moss">{fmt(report.totalInvestments, cur)}</div>
             </div>
@@ -1410,24 +1466,36 @@ function BalanceSheet({ store }) {
             {report.investments.map((a, i) => (
               <StatementRow key={i} label={a.name} value={a.value} cur={cur} indent />
             ))}
-          </div>
+          </button>
 
           {/* Cash on hand */}
-          <div className="p-6 md:p-8">
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "income" })}
+            className="w-full text-left p-6 md:p-8 hover:bg-moss/10 transition-colors cursor-pointer group"
+            data-testid="bs-click-cash"
+            title="Click to view income transactions"
+          >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-moss">
                 <Wallet size={12} /> Cash on hand
+                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ view income</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-moss">{fmt(Math.max(0, report.cash), cur)}</div>
             </div>
             <p className="text-xs text-graphite">Opening balance + net of all transactions through {new Date(endOfMonth).toLocaleDateString("default", { month: "short", day: "numeric" })}.</p>
-          </div>
+          </button>
 
           {/* Total */}
-          <div className="p-6 md:p-8 bg-moss text-paper flex items-baseline justify-between border-t border-ink">
-            <span className="overline">Total green</span>
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("networth")}
+            className="w-full p-6 md:p-8 bg-moss text-paper flex items-baseline justify-between border-t border-ink hover:bg-moss/90 transition-colors cursor-pointer"
+            data-testid="bs-total-green-btn"
+          >
+            <span className="overline">Total green →</span>
             <span className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter" data-testid="bs-total-green">+{fmt(report.totalGreen, cur)}</span>
-          </div>
+          </button>
         </div>
 
         {/* RIGHT / RED */}
@@ -1441,10 +1509,17 @@ function BalanceSheet({ store }) {
           </div>
 
           {/* Debts / Loans */}
-          <div className="p-6 md:p-8 border-b border-rule">
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("networth")}
+            className="w-full text-left p-6 md:p-8 border-b border-rule hover:bg-[#9B2C2C]/10 transition-colors cursor-pointer group"
+            data-testid="bs-click-debts"
+            title="Click to manage debts in Net Worth tab"
+          >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-[#9B2C2C]">
                 <Landmark size={12} /> Debts / Loans
+                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ manage</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalDebts, cur)}</div>
             </div>
@@ -1457,13 +1532,20 @@ function BalanceSheet({ store }) {
             {report.debts.map((d, i) => (
               <StatementRow key={i} label={`${d.name}${d.rate ? ` · ${d.rate}% APR` : ""}`} value={d.value} cur={cur} indent negative />
             ))}
-          </div>
+          </button>
 
           {/* Expenses this month */}
-          <div className="p-6 md:p-8">
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "expense" })}
+            className="w-full text-left p-6 md:p-8 hover:bg-[#9B2C2C]/10 transition-colors cursor-pointer group"
+            data-testid="bs-click-expenses"
+            title="Click to view & edit these expenses"
+          >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2 overline text-[#9B2C2C]">
                 <Receipt size={12} /> Expenses · {monthLabel}
+                <span className="text-[10px] normal-case tracking-normal text-graphite/70 opacity-0 group-hover:opacity-100 transition-opacity">→ view & edit</span>
               </div>
               <div className="font-serif text-lg tabular-nums text-[#9B2C2C]">−{fmt(report.totalExpenses, cur)}</div>
             </div>
@@ -1473,13 +1555,18 @@ function BalanceSheet({ store }) {
             {Object.entries(report.expenseByCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
               <StatementRow key={k} label={(CAT_MAP[k] || { label: k }).label} value={v} cur={cur} indent negative />
             ))}
-          </div>
+          </button>
 
           {/* Total */}
-          <div className="p-6 md:p-8 bg-[#9B2C2C] text-paper flex items-baseline justify-between border-t border-ink">
-            <span className="overline">Total red</span>
+          <button
+            type="button"
+            onClick={() => jumpTo && jumpTo("transactions", { month: asOf, type: "expense" })}
+            className="w-full p-6 md:p-8 bg-[#9B2C2C] text-paper flex items-baseline justify-between border-t border-ink hover:bg-[#9B2C2C]/90 transition-colors cursor-pointer"
+            data-testid="bs-total-red-btn"
+          >
+            <span className="overline">Total red →</span>
             <span className="font-serif text-4xl md:text-5xl tabular-nums tracking-tighter" data-testid="bs-total-red">−{fmt(report.totalRed, cur)}</span>
-          </div>
+          </button>
         </div>
       </div>
 
