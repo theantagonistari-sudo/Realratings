@@ -1,12 +1,9 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { LogIn, LogOut, User, Brain, Lock, Wallet } from "lucide-react";
-import IQTest from "./IQTest";
+import { LogIn, LogOut, User, Lock, Wallet } from "lucide-react";
 
 export default function Navbar() {
   const { user, login, logout } = useAuth();
-  const [iqOpen, setIqOpen] = useState(false);
   const navigate = useNavigate();
 
   const linkCls = ({ isActive }) =>
@@ -20,18 +17,15 @@ export default function Navbar() {
           <span className="hidden sm:inline overline text-moss">Editorial</span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-8">
+        <nav className="hidden md:flex items-center gap-7">
           <NavLink to="/" end className={linkCls} data-testid="nav-home">Home</NavLink>
-          <NavLink to="/properties?rental_type=rent" className={linkCls} data-testid="nav-rent">For Rent</NavLink>
-          <NavLink to="/properties?rental_type=short_stay" className={linkCls} data-testid="nav-shortstay">Short Stay</NavLink>
+          <NavLink to="/properties?rental_type=rent" className={linkCls} data-testid="nav-rent">Rent</NavLink>
+          <NavLink to="/properties?rental_type=short_stay" className={linkCls} data-testid="nav-shortstay">Stays</NavLink>
           <NavLink to="/submit" className={linkCls} data-testid="nav-submit">Submit</NavLink>
           <NavLink to="/tests" className={linkCls} data-testid="nav-tests">Tests</NavLink>
           <NavLink to="/finance" className={linkCls} data-testid="nav-finance">
             <span className="inline-flex items-center gap-1.5"><Wallet size={12} /> Finance</span>
           </NavLink>
-          <button onClick={() => setIqOpen(true)} className="overline text-graphite hover:text-ink transition-colors flex items-center gap-1.5" data-testid="nav-iq">
-            <Brain size={12} /> Test IQ
-          </button>
           {user && <NavLink to="/profile" className={linkCls} data-testid="nav-profile">Profile</NavLink>}
           {user?.role === "admin" && (
             <NavLink to="/admin" className={linkCls} data-testid="nav-admin">Admin</NavLink>
@@ -75,7 +69,6 @@ export default function Navbar() {
           )}
         </div>
       </div>
-      <IQTest open={iqOpen} onOpenChange={setIqOpen} />
     </header>
   );
 }
