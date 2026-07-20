@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import IQTest from "./IQTest";
 
 const KEY = "rr_iq_seen";
-const HIDE_ROUTES = ["/admin/login", "/admin"];
+const HIDE_ROUTES = ["/admin/login", "/admin", "/finance", "/tests", "/submit", "/profile"];
 
 export default function IQFirstVisit() {
   const [open, setOpen] = useState(false);
