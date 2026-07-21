@@ -57,6 +57,23 @@ const fmtDec = (v, cur = "USD") =>
 const monthKey = (isoDate) => (isoDate || "").slice(0, 7);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
+// Format an ISO timestamp as a compact "logged" label
+function fmtLogged(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD < 7) return `${diffD}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 // ---------- Client-side classifier ----------
 // Turns a freeform line into one of 4 buckets:
 //  - "expense"        → transaction (type=expense) in Expenses
@@ -83,13 +100,30 @@ const CATEGORY_KEYWORDS = {
   education: ["course", "book", "tuition", "school", "coursera", "udemy", "kindle", "audible", "class"],
   other: [],
 };
-// Debt/liability keywords — trigger the DEBT bucket (adds to store.debts, no interest tracking)
-const DEBT_KEYWORDS = [
-  "debt", "owe", "owed", "i owe", "iou",
+// Debt/liability keywords — trigger DEBT-ADD bucket (declare a new debt to repay).
+// Use action-object phrasing to avoid overlap with debt-pay commands.
+const DEBT_ADD_KEYWORDS = [
+  "new debt", "add debt", "declare debt",
   "loan received", "took loan", "took a loan", "took out loan", "borrowed", "new loan",
   "credit card balance", "line of credit",
   "student loan balance", "car loan balance", "mortgage balance", "loan balance",
-  "loan:", "loan ", "mortgage:",
+  "owe ", "owed ", "i owe", "iou",
+  "debt:", "loan:", "mortgage:",
+];
+// Debt PAYMENT commands — reduce an existing debt AND create matching expense
+const DEBT_PAY_KEYWORDS = [
+  "pay debt", "pay off debt", "pay to debt", "pay towards debt", "pay toward debt",
+  "add to debt", "add towards debt", "add toward debt",
+  "settle debt", "settle on debt", "reduce debt", "off debt", "deduct from debt", "apply to debt",
+  "debt payment",
+];
+// Investment SELL commands — reduce an investment AND add proceeds to income
+const INVEST_SELL_KEYWORDS = [
+  "sell from investment", "sell investment", "from investment",
+  "sell etf", "sell stock", "sell crypto", "sell from",
+  "cash out from", "cash out investment", "cashout from",
+  "withdraw from investment", "withdraw investment",
+  "add from investment", "from etf", "from stock", "from crypto", "from portfolio", "from ira", "from 401k",
 ];
 const INCOME_KEYWORDS = new Set([
   ...CATEGORY_KEYWORDS.salary, ...CATEGORY_KEYWORDS.freelance,
@@ -120,21 +154,41 @@ function classifyLine(raw) {
   if (!amount || Number.isNaN(amount)) return null;
   const note = line.replace(rawAmount, "").replace(/\s+/g, " ").trim() || "Transaction";
 
-  // ── DEBT bucket (adds to store.debts, not a transaction — no interest tracking)
-  if (DEBT_KEYWORDS.some(k => lower.includes(k))) {
-    // Optionally parse APR if user types one, but it's not required — just informational
+  // ── DEBT PAYMENT command → reduces existing debt AND creates matching expense
+  // Match if line contains "debt" AND an action word (pay/settle/reduce/deduct/apply/off/toward/towards)
+  // OR the specific phrase "debt payment".
+  const DEBT_ACTIONS = ["pay", "settle", "reduce", "deduct", "apply", "off", "toward", "towards"];
+  const isDebtPay = () =>
+    lower.includes("debt payment") ||
+    (lower.includes("debt") && DEBT_ACTIONS.some(a => new RegExp(`\\b${a}\\b`, "i").test(lower)));
+  if (isDebtPay()) {
+    const target = note.replace(/\b(debt|payment|pay|settle|reduce|off|add|toward|towards|to|apply|deduct|from)\b/gi, "").replace(/\s+/g, " ").trim();
+    return { bucket: "debt-pay", amount: Math.round(amount * 100) / 100, target: target || null, confidence: "high" };
+  }
+
+  // ── INVESTMENT SELL command → reduces an investment AND creates income
+  // Match if line contains sell/sold/cash-out/withdraw, OR "from <asset-type>" pattern.
+  const isInvestSell = () =>
+    /\b(sell|sold|cash ?out|withdraw)\b/i.test(lower) ||
+    /\bfrom\s+(investment|investments|etf|stock|stocks|portfolio|crypto|ira|401k|mutual fund|index fund|bond|bonds)/i.test(lower);
+  if (isInvestSell()) {
+    const target = note.replace(/\b(sell|sold|from|withdraw|cash ?out|investment|investments|add|to|of)\b/gi, "").replace(/\s+/g, " ").trim();
+    return { bucket: "investment-sell", amount: Math.round(amount * 100) / 100, target: target || null, confidence: "high" };
+  }
+
+  // ── DEBT ADD (declare a NEW debt) → adds to store.debts
+  // Match line starting with "debt " (e.g. "Debt visa 800") OR explicit add-keywords.
+  const isDebtAdd = () => /^\s*debt\s+\S/i.test(line) || DEBT_ADD_KEYWORDS.some(k => lower.includes(k));
+  if (isDebtAdd()) {
     const aprMatch = line.match(/(\d+(?:\.\d+)?)\s*%/);
-    const rate = aprMatch ? parseFloat(aprMatch[1]) : 0;
-    // Balance = the largest number that ISN'T the APR
     const withoutApr = aprMatch ? line.replace(aprMatch[0], " ") : line;
     const balNums = (withoutApr.match(numRe) || []).map(n => Math.abs(parseFloat(n.replace(/[,+$]/g, ""))));
     const balance = balNums.length ? Math.max(...balNums) : amount;
-    const cleanName = withoutApr.replace(new RegExp(balance.toString(), "g"), "").replace(/(apr|loan|debt|balance|owed|owe|i)/gi, "").replace(/\s+/g, " ").trim() || "Debt";
+    const cleanName = withoutApr.replace(new RegExp(balance.toString(), "g"), "").replace(/\b(apr|loan|debt|balance|owed|owe|i|new|add|declare)\b/gi, "").replace(/\s+/g, " ").trim() || "Debt";
     return {
       bucket: "debt",
       name: cleanName.length > 40 ? cleanName.slice(0, 40) : cleanName,
       value: Math.round(balance * 100) / 100,
-      rate,
       confidence: "high",
     };
   }
@@ -529,7 +583,7 @@ function EmptyDashboard({ store, update }) {
           </button>
           <StartingBalance store={store} update={update} />
         </div>
-        {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
+        {starterOpen && <TxnDialog onClose={() => setStarterOpen(false)} onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid(), createdAt: new Date().toISOString() }, ...s.transactions] })); setStarterOpen(false); toast.success("Added."); }} cur={store.currency} />}
       </div>
     </div>
   );
@@ -545,14 +599,81 @@ function QuickAdd({ store, update }) {
     const t = classifyLine(text);
     if (!t) { toast.error("Type something like 'Uber 24', '+5200 salary', 'Dividend 200', or 'Car loan 25000 5%'."); return; }
 
-    // DEBT bucket → adds a balance to store.debts, not a transaction (no interest tracked)
+    // DEBT-PAY command → reduce a debt AND create matching expense (from income)
+    if (t.bucket === "debt-pay") {
+      const debts = store.debts || [];
+      if (debts.length === 0) { toast.error("No debts recorded. Add one first (e.g. 'Debt credit card 3500')."); return; }
+      // Match by any target word (>2 chars) hitting the debt name, else fall back to first debt
+      const target = (t.target || "").toLowerCase();
+      const words = target.split(/\s+/).filter(w => w.length > 2);
+      const debt =
+        (words.length && debts.find(d => words.some(w => d.name.toLowerCase().includes(w)))) ||
+        (target && debts.find(d => d.name.toLowerCase().includes(target))) ||
+        debts[0];
+      if (t.amount > debt.value) { toast.error(`Payment ${fmtDec(t.amount, store.currency)} exceeds "${debt.name}" balance ${fmtDec(debt.value, store.currency)}.`); return; }
+      const nowIso = new Date().toISOString();
+      const txnId = uid();
+      update(s => ({
+        debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - t.amount).toFixed(2) } : d),
+        transactions: [
+          { id: txnId, type: "expense", category: "other", amount: t.amount, date: nowIso.slice(0, 10), createdAt: nowIso, note: `Debt payment: ${debt.name}` },
+          ...s.transactions,
+        ],
+      }));
+      setText("");
+      toast.success(`−${fmtDec(t.amount, store.currency)} paid on "${debt.name}"`, {
+        description: `Debt balance ${fmtDec(debt.value - t.amount, store.currency)} · expense recorded from income`,
+        action: { label: "Undo", onClick: () => {
+          update(s => ({
+            debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value + t.amount).toFixed(2) } : d),
+            transactions: s.transactions.filter(x => x.id !== txnId),
+          }));
+        }},
+      });
+      return;
+    }
+
+    // INVESTMENT-SELL command → reduce an investment AND add income
+    if (t.bucket === "investment-sell") {
+      const assets = store.assets || [];
+      if (assets.length === 0) { toast.error("No investments recorded. Add one first in Net Worth."); return; }
+      const target = (t.target || "").toLowerCase();
+      const words = target.split(/\s+/).filter(w => w.length > 2);
+      const asset =
+        (words.length && assets.find(a => words.some(w => a.name.toLowerCase().includes(w)))) ||
+        (target && assets.find(a => a.name.toLowerCase().includes(target))) ||
+        assets[0];
+      if (t.amount > asset.value) { toast.error(`Sell ${fmtDec(t.amount, store.currency)} exceeds "${asset.name}" value ${fmtDec(asset.value, store.currency)}.`); return; }
+      const nowIso = new Date().toISOString();
+      const txnId = uid();
+      update(s => ({
+        assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value - t.amount).toFixed(2) } : a),
+        transactions: [
+          { id: txnId, type: "income", category: INVEST_CAT, amount: t.amount, date: nowIso.slice(0, 10), createdAt: nowIso, note: `Sold from ${asset.name}` },
+          ...s.transactions,
+        ],
+      }));
+      setText("");
+      toast.success(`+${fmtDec(t.amount, store.currency)} from "${asset.name}"`, {
+        description: `Investment balance ${fmtDec(asset.value - t.amount, store.currency)} · added as income`,
+        action: { label: "Undo", onClick: () => {
+          update(s => ({
+            assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value + t.amount).toFixed(2) } : a),
+            transactions: s.transactions.filter(x => x.id !== txnId),
+          }));
+        }},
+      });
+      return;
+    }
+
+    // DEBT bucket → adds a NEW balance to store.debts (no interest tracked)
     if (t.bucket === "debt") {
       const id = uid();
-      const debt = { id, name: t.name, value: t.value, rate: t.rate || 0 };
+      const debt = { id, name: t.name, value: t.value, rate: 0, createdAt: new Date().toISOString() };
       update(s => ({ debts: [...(s.debts || []), debt] }));
       setText("");
       toast.success(`Debt added · ${fmtDec(t.value, store.currency)}`, {
-        description: `"${t.name}" · view under Debts in the Balance Sheet / Net Worth tab. Pay it down manually.`,
+        description: `"${t.name}" · view under Debts. Pay it down manually or via a debt-pay command.`,
         action: { label: "Undo", onClick: () => {
           update(s => ({ debts: (s.debts || []).filter(x => x.id !== id) }));
         }},
@@ -561,8 +682,9 @@ function QuickAdd({ store, update }) {
     }
 
     // TRANSACTION buckets (expense / income / invest-return) → normalise & add
+    const nowIso = new Date().toISOString();
     const id = uid();
-    const clean = normalizeTxn({ type: t.type, category: t.category, amount: t.amount, note: t.note, date: t.date });
+    const clean = normalizeTxn({ type: t.type, category: t.category, amount: t.amount, note: t.note, date: t.date, createdAt: nowIso });
     const txn = { ...clean, id };
     update(s => ({ transactions: [txn, ...s.transactions] }));
     setLast({ txn, id });
@@ -586,29 +708,31 @@ function QuickAdd({ store, update }) {
   };
 
   const preview = classifyLine(text);
-  const catLabel = preview && preview.bucket !== "debt" ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
+  const catLabel = preview && !["debt", "debt-pay", "investment-sell"].includes(preview.bucket) ? (CAT_MAP[preview.category] || { label: preview.category }).label : null;
   const bucketLabel = preview
-    ? (preview.bucket === "debt" ? "Debt" : preview.bucket === "invest-return" ? "Investment return" : preview.type === "income" ? "Income" : "Expense")
+    ? (preview.bucket === "debt" ? "New debt"
+      : preview.bucket === "debt-pay" ? "Debt payment"
+      : preview.bucket === "investment-sell" ? "Sell investment → income"
+      : preview.bucket === "invest-return" ? "Investment return"
+      : preview.type === "income" ? "Income" : "Expense")
     : null;
   const bucketColor = preview
-    ? (preview.bucket === "debt"
+    ? (["debt", "debt-pay", "expense"].includes(preview.bucket) || (preview.type === "expense")
         ? "bg-[#9B2C2C]/10 text-[#9B2C2C]"
-        : preview.type === "income"
-          ? "bg-moss/10 text-moss"
-          : "bg-[#9B2C2C]/10 text-[#9B2C2C]")
+        : "bg-moss/10 text-moss")
     : "";
 
   return (
     <div className="bg-white border border-ink rounded-sm p-5 md:p-6" data-testid="quick-add">
       <div className="flex items-center gap-2 mb-3">
         <Sparkles size={12} className="text-moss" />
-        <span className="overline text-moss">Quick add · expenses · incomes · debts · investment returns</span>
+        <span className="overline text-moss">Quick add · type & press enter</span>
       </div>
       <form onSubmit={submit} className="flex gap-2 flex-wrap md:flex-nowrap items-center">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder='e.g. "Uber 24"   ·   "+5200 salary"   ·   "Dividend 200"   ·   "Debt car loan 25000"'
+          placeholder='"Uber 24" · "+5200 salary" · "Dividend 200" · "Debt visa 800" · "Pay 50 to debt" · "Sell 500 from ETF"'
           className="flex-1 min-w-0 bg-transparent border-b border-rule focus:outline-none focus:border-ink py-3 font-serif text-xl md:text-2xl tracking-tight placeholder:text-graphite/50 placeholder:font-sans placeholder:text-base"
           data-testid="quick-add-input"
           autoComplete="off"
@@ -628,7 +752,21 @@ function QuickAdd({ store, update }) {
               <span className="text-ink">{preview.name}</span>
               <span className="text-graphite">·</span>
               <span className="font-serif text-ink text-base tabular-nums">{fmtDec(preview.value, store.currency)}</span>
-              <span className="text-graphite italic">· pay down manually in Balance Sheet</span>
+              <span className="text-graphite italic">· new debt to repay</span>
+            </>
+          ) : preview.bucket === "debt-pay" ? (
+            <>
+              <span className="font-serif text-ink text-base tabular-nums">−{fmtDec(preview.amount, store.currency)}</span>
+              <span className="text-graphite">·</span>
+              <span className="text-ink">off {preview.target || "first debt"}</span>
+              <span className="text-graphite italic">· recorded as expense</span>
+            </>
+          ) : preview.bucket === "investment-sell" ? (
+            <>
+              <span className="font-serif text-ink text-base tabular-nums">+{fmtDec(preview.amount, store.currency)}</span>
+              <span className="text-graphite">·</span>
+              <span className="text-ink">from {preview.target || "first investment"}</span>
+              <span className="text-graphite italic">· added to income</span>
             </>
           ) : (
             <>
@@ -696,12 +834,20 @@ function Transactions({ store, update, initialFilter }) {
   }, [store]);
 
   const filtered = useMemo(() => {
+    const matchType = (t) => {
+      if (!filterType) return true;
+      if (filterType === "income") return t.type === "income" && t.category !== INVEST_CAT;
+      if (filterType === "expense") return t.type === "expense" && !(t.note || "").startsWith("Debt payment:");
+      if (filterType === "invest-return") return t.type === "income" && t.category === INVEST_CAT;
+      if (filterType === "debt-pay") return t.type === "expense" && (t.note || "").startsWith("Debt payment:");
+      return true;
+    };
     return store.transactions
       .filter(t => !filterMonth || monthKey(t.date) === filterMonth)
-      .filter(t => !filterType || t.type === filterType)
+      .filter(matchType)
       .filter(t => !filterCategory || t.category === filterCategory)
       .filter(t => !q || (t.note || "").toLowerCase().includes(q.toLowerCase()) || (CAT_MAP[t.category]?.label || "").toLowerCase().includes(q.toLowerCase()))
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date));
   }, [store, filterMonth, filterType, filterCategory, q]);
 
   const del = (id) => {
@@ -742,10 +888,12 @@ function Transactions({ store, update, initialFilter }) {
           <option value="">All months</option>
           {months.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-        <select value={filterType} onChange={e => setFilterType(e.target.value)} className="bg-transparent border border-rule px-3 py-2 text-xs uppercase tracking-widest text-graphite md:w-32" data-testid="filter-type">
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} className="bg-transparent border border-rule px-3 py-2 text-xs uppercase tracking-widest text-graphite md:w-44" data-testid="filter-type">
           <option value="">All types</option>
-          <option value="income">Income</option>
+          <option value="income">Income (direct)</option>
           <option value="expense">Expense</option>
+          <option value="invest-return">Investment return</option>
+          <option value="debt-pay">Debt payment</option>
         </select>
         <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="bg-transparent border border-rule px-3 py-2 text-xs uppercase tracking-widest text-graphite md:w-48" data-testid="filter-category">
           <option value="">All categories</option>
@@ -762,8 +910,8 @@ function Transactions({ store, update, initialFilter }) {
 
       {open && <TxnDialog
         onClose={() => setOpen(false)}
-        onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }}
-        onSaveDebt={(d) => { update(s => ({ debts: [...(s.debts || []), { ...d, id: uid() }] })); setOpen(false); toast.success("Debt added."); }}
+        onSave={(t) => { const nt = normalizeTxn(t); update(s => ({ transactions: [{ ...nt, id: uid(), createdAt: new Date().toISOString() }, ...s.transactions] })); setOpen(false); toast.success("Added."); }}
+        onSaveDebt={(d) => { update(s => ({ debts: [...(s.debts || []), { ...d, id: uid(), createdAt: new Date().toISOString() }] })); setOpen(false); toast.success("Debt added."); }}
         cur={cur}
       />}
       {editing && (
@@ -796,9 +944,10 @@ function TxnRow({ txn, cur, onDelete, onEdit }) {
         {isIncome ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="font-serif text-lg text-ink">{cat?.label || txn.category}</span>
           <span className="text-xs text-graphite">{new Date(txn.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+          {txn.createdAt && <span className="text-[10px] text-graphite/60 italic" title={new Date(txn.createdAt).toLocaleString()}>logged {fmtLogged(txn.createdAt)}</span>}
           {onEdit && <span className="text-[10px] uppercase tracking-widest text-graphite/60 opacity-0 group-hover:opacity-100 transition-opacity">Click to edit</span>}
         </div>
         {txn.note && <div className="text-sm text-graphite mt-0.5 truncate">{txn.note}</div>}
@@ -1393,7 +1542,7 @@ function ImportPanel({ store, update }) {
   };
 
   const commit = () => {
-    const chosen = preview.filter((_, i) => selected[i]).map(t => ({ ...normalizeTxn(t), id: uid() }));
+    const chosen = preview.filter((_, i) => selected[i]).map(t => ({ ...normalizeTxn(t), id: uid(), createdAt: new Date().toISOString() }));
     if (chosen.length === 0) return toast.error("Select at least one row.");
     update(s => ({ transactions: [...chosen, ...s.transactions] }));
     setPreview([]); setText(""); setSelected({});
@@ -1485,14 +1634,14 @@ function NetWorth({ store, update, jumpTo }) {
     e.preventDefault();
     const v = parseFloat(aVal);
     if (!aName || !v || v <= 0) return toast.error("Fill both fields.");
-    update(s => ({ assets: [...(s.assets || []), { id: uid(), name: aName, value: v }] }));
+    update(s => ({ assets: [...(s.assets || []), { id: uid(), name: aName, value: v, createdAt: new Date().toISOString() }] }));
     setAName(""); setAVal(""); toast.success("Asset added.");
   };
   const addDebt = (e) => {
     e.preventDefault();
     const v = parseFloat(dVal);
     if (!dName || !v || v <= 0) return toast.error("Fill both fields.");
-    update(s => ({ debts: [...(s.debts || []), { id: uid(), name: dName, value: v, rate: parseFloat(dRate) || 0 }] }));
+    update(s => ({ debts: [...(s.debts || []), { id: uid(), name: dName, value: v, rate: parseFloat(dRate) || 0, createdAt: new Date().toISOString() }] }));
     setDName(""); setDVal(""); setDRate(""); toast.success("Debt added.");
   };
   const rmAsset = (id) => update(s => ({ assets: (s.assets || []).filter(x => x.id !== id) }));
@@ -1572,7 +1721,7 @@ function NetWorthInvestmentRow({ asset, cur, update, onDelete }) {
     update(s => ({
       assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value - amt).toFixed(2) } : a),
       transactions: [
-        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), note: `Sold from ${asset.name}` },
+        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), note: `Sold from ${asset.name}` },
         ...s.transactions,
       ],
     }));
@@ -1604,7 +1753,7 @@ function NetWorthDebtRow({ debt, cur, update, onDelete }) {
     update(s => {
       const patch = { debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) };
       if (linkCash) {
-        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), note: `Debt payment: ${debt.name}` };
+        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), note: `Debt payment: ${debt.name}` };
         patch.transactions = [txn, ...s.transactions];
       }
       return patch;
@@ -1943,7 +2092,7 @@ function InvestmentRowWithSell({ asset, cur, update }) {
     update(s => ({
       assets: (s.assets || []).map(a => a.id === asset.id ? { ...a, value: +(a.value - amt).toFixed(2) } : a),
       transactions: [
-        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), note: `Sold from ${asset.name}` },
+        { id: uid(), type: "income", category: INVEST_CAT, amount: amt, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), note: `Sold from ${asset.name}` },
         ...s.transactions,
       ],
     }));
@@ -1974,7 +2123,7 @@ function DebtRowWithPay({ debt, cur, update }) {
     update(s => {
       const patch = { debts: (s.debts || []).map(d => d.id === debt.id ? { ...d, value: +(d.value - amt).toFixed(2) } : d) };
       if (linkCash) {
-        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), note: `Debt payment: ${debt.name}` };
+        const txn = { id: uid(), type: "expense", category: "other", amount: amt, date: new Date().toISOString().slice(0, 10), createdAt: new Date().toISOString(), note: `Debt payment: ${debt.name}` };
         patch.transactions = [txn, ...s.transactions];
       }
       return patch;
