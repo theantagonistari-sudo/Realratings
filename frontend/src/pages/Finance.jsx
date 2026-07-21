@@ -423,23 +423,55 @@ function Dashboard({ store, update, jumpTo }) {
         </div>
       </button>
 
-      {/* Hero Stats — Bento */}
-      <div className="grid grid-cols-12 gap-4">
+      {/* Five key displays — Investments · Debts · Income · Expenses · Liquidity */}
+      <div className="grid grid-cols-12 gap-4" data-testid="hero-stats">
+        <StatTile
+          label="Investments"
+          value={fmt(health.totalAssets, cur)}
+          icon={<PiggyBank size={16} />}
+          sub={`${(store.assets || []).length} holding${(store.assets || []).length === 1 ? "" : "s"} · click to manage`}
+          testid="stat-investments"
+          positive
+          onClick={() => jumpTo && jumpTo("networth")}
+        />
+        <StatTile
+          label="Debts"
+          value={fmt(health.totalDebts, cur)}
+          icon={<TrendingDown size={16} />}
+          sub={`${(store.debts || []).length} balance${(store.debts || []).length === 1 ? "" : "s"} to repay · click to manage`}
+          testid="stat-debts"
+          negative
+          onClick={() => jumpTo && jumpTo("networth")}
+        />
+        <StatTile
+          label={`Income · ${new Date().toLocaleString("default", { month: "short" })}`}
+          value={fmt(stats.income, cur)}
+          icon={<TrendingUp size={16} />}
+          sub="Direct + investment sells · click for ledger"
+          testid="stat-income"
+          positive
+          onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "income" })}
+        />
+        <StatTile
+          label={`Expenses · ${new Date().toLocaleString("default", { month: "short" })}`}
+          value={fmt(stats.expense, cur)}
+          icon={<TrendingDown size={16} />}
+          sub="Taken from income · click for ledger"
+          testid="stat-expense"
+          negative
+          onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "expense" })}
+        />
         <button
           type="button"
-          onClick={() => jumpTo && jumpTo("transactions")}
-          className="col-span-12 md:col-span-6 bg-ink text-paper p-8 rounded-sm text-left hover:bg-ink/90 transition-colors cursor-pointer group"
-          data-testid="stat-balance-tile"
-          title="Click to view all transactions"
+          onClick={() => jumpTo && jumpTo("balancesheet")}
+          className="col-span-12 md:col-span-4 bg-ink text-paper p-6 rounded-sm text-left hover:bg-ink/90 transition-colors cursor-pointer"
+          data-testid="stat-liquidity"
+          title="Click to open Balance Sheet"
         >
-          <div className="overline text-paper/70 mb-2">Total balance · click to view ledger →</div>
-          <div className="font-serif text-6xl md:text-7xl tracking-tighter leading-none" data-testid="stat-balance">{fmt(stats.balance, cur)}</div>
-          <div className="mt-4 text-paper/70 text-sm">Cumulative across all recorded transactions</div>
+          <div className="flex items-center gap-2 overline text-paper/70 mb-3"><Wallet size={16} /> Current liquidity</div>
+          <div className="font-serif text-4xl md:text-5xl tracking-tighter tabular-nums leading-none" data-testid="stat-liquidity-value">{fmt(stats.balance, cur)}</div>
+          <div className="text-xs text-paper/70 mt-2">Cash on hand · income minus expenses cumulative</div>
         </button>
-        <StatTile label="This month · Income"  value={fmt(stats.income, cur)} icon={<TrendingUp size={16} />} sub="Click to see income" testid="stat-income" positive onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "income" })} />
-        <StatTile label="This month · Expense" value={fmt(stats.expense, cur)} icon={<TrendingDown size={16} />} sub="Click to see expenses" testid="stat-expense" negative onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "expense" })} />
-        <StatTile label="Net · this month"     value={fmt(stats.net, cur)}     icon={<PiggyBank size={16} />}    sub={`${stats.savingsRate.toFixed(0)}% savings rate · Click for budgets`} testid="stat-net" onClick={() => jumpTo && jumpTo("budgets")} />
-        <StatTile label="Transactions"         value={store.transactions.length} icon={<Receipt size={16} />}    sub="All-time count · Click for ledger" testid="stat-txns" onClick={() => jumpTo && jumpTo("transactions")} />
       </div>
 
       {/* Charts row */}
@@ -555,11 +587,11 @@ function Dashboard({ store, update, jumpTo }) {
 }
 
 function StatTile({ label, value, icon, sub, positive, negative, testid, onClick }) {
-  const cls = `col-span-6 md:col-span-3 border p-6 rounded-sm text-left transition-colors ${negative ? "bg-white border-[#9B2C2C]/30 hover:bg-[#9B2C2C]/5" : positive ? "bg-white border-moss/30 hover:bg-moss/5" : "bg-white border-rule hover:bg-stone2/40"} ${onClick ? "cursor-pointer" : ""}`;
+  const cls = `col-span-6 md:col-span-2 border p-5 rounded-sm text-left transition-colors ${negative ? "bg-white border-[#9B2C2C]/30 hover:bg-[#9B2C2C]/5" : positive ? "bg-white border-moss/30 hover:bg-moss/5" : "bg-white border-rule hover:bg-stone2/40"} ${onClick ? "cursor-pointer" : ""}`;
   const content = (
     <>
       <div className="flex items-center gap-2 overline text-graphite mb-3">{icon}{label}</div>
-      <div className={`font-serif text-3xl tracking-tighter tabular-nums leading-none ${positive ? "text-moss" : negative ? "text-[#9B2C2C]" : "text-ink"}`}>{value}</div>
+      <div className={`font-serif text-2xl md:text-3xl tracking-tighter tabular-nums leading-none ${positive ? "text-moss" : negative ? "text-[#9B2C2C]" : "text-ink"}`}>{value}</div>
       {sub && <div className="text-xs text-graphite mt-2">{sub}</div>}
     </>
   );
