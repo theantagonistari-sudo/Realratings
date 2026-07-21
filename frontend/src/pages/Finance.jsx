@@ -673,7 +673,21 @@ function TileBreakdown({ which, store, update, jumpTo, mk, cur, onEdit, onClose 
         {which === "income" && (
           monthIncome.length === 0
             ? <p className="text-graphite italic text-sm">No income this month.</p>
-            : monthIncome.map(t => <TxnRow key={t.id} txn={t} cur={cur} onEdit={onEdit} onDelete={() => update(s => ({ transactions: s.transactions.filter(x => x.id !== t.id) }))} />)
+            : monthIncome.map(t => <TxnRow key={t.id} txn={t} cur={cur} onEdit={onEdit}
+                onUndoSell={(txn) => {
+                  const m = (txn.note || "").match(/^Sold from (.+)$/);
+                  const name = m ? m[1].trim() : "";
+                  update(s => {
+                    const assets = s.assets || [];
+                    const idx = assets.findIndex(a => a.name.trim() === name);
+                    const newAssets = idx >= 0
+                      ? assets.map((a, i) => i === idx ? { ...a, value: +(a.value + txn.amount).toFixed(2) } : a)
+                      : [...assets, { id: uid(), name: name || "Restored investment", value: txn.amount, createdAt: new Date().toISOString() }];
+                    return { assets: newAssets, transactions: s.transactions.filter(x => x.id !== txn.id) };
+                  });
+                  toast.success(`Restored ${fmtDec(txn.amount, cur)} back to "${name}".`, { description: "Income entry removed." });
+                }}
+                onDelete={() => update(s => ({ transactions: s.transactions.filter(x => x.id !== t.id) }))} />)
         )}
         {which === "expenses" && (
           monthExpense.length === 0
@@ -1047,7 +1061,22 @@ function Transactions({ store, update, initialFilter }) {
       <div className="bg-white border border-rule">
         {filtered.length === 0 ? (
           <div className="p-12 text-center text-graphite italic">No transactions match your filters.</div>
-        ) : filtered.map(t => <TxnRow key={t.id} txn={t} cur={cur} onDelete={() => del(t.id)} onEdit={setEditing} />)}
+        ) : filtered.map(t => <TxnRow key={t.id} txn={t} cur={cur}
+            onDelete={() => del(t.id)}
+            onEdit={setEditing}
+            onUndoSell={(txn) => {
+              const m = (txn.note || "").match(/^Sold from (.+)$/);
+              const name = m ? m[1].trim() : "";
+              update(s => {
+                const assets = s.assets || [];
+                const idx = assets.findIndex(a => a.name.trim() === name);
+                const newAssets = idx >= 0
+                  ? assets.map((a, i) => i === idx ? { ...a, value: +(a.value + txn.amount).toFixed(2) } : a)
+                  : [...assets, { id: uid(), name: name || "Restored investment", value: txn.amount, createdAt: new Date().toISOString() }];
+                return { assets: newAssets, transactions: s.transactions.filter(x => x.id !== txn.id) };
+              });
+              toast.success(`Restored ${fmtDec(txn.amount, cur)} back to "${name}".`, { description: "Income entry removed." });
+            }} />)}
       </div>
 
       {open && <TxnDialog
@@ -1072,9 +1101,10 @@ function Transactions({ store, update, initialFilter }) {
   );
 }
 
-function TxnRow({ txn, cur, onDelete, onEdit }) {
+function TxnRow({ txn, cur, onDelete, onEdit, onUndoSell }) {
   const cat = CAT_MAP[txn.category];
   const isIncome = txn.type === "income";
+  const isSellRestorable = onUndoSell && isIncome && (txn.note || "").startsWith("Sold from ");
   return (
     <div
       className={`flex items-center gap-4 border-b border-rule last:border-b-0 p-4 group ${onEdit ? "cursor-pointer hover:bg-stone2/50 transition-colors" : ""}`}
@@ -1090,20 +1120,31 @@ function TxnRow({ txn, cur, onDelete, onEdit }) {
           <span className="font-serif text-lg text-ink">{cat?.label || txn.category}</span>
           <span className="text-xs text-graphite">{new Date(txn.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
           {txn.createdAt && <span className="text-[10px] text-graphite/60 italic" title={new Date(txn.createdAt).toLocaleString()}>logged {fmtLogged(txn.createdAt)}</span>}
-          {onEdit && <span className="text-[10px] uppercase tracking-widest text-graphite/60 opacity-0 group-hover:opacity-100 transition-opacity">Click to edit</span>}
+          {onEdit && <span className="text-[10px] uppercase tracking-widest text-graphite/60 hidden group-hover:inline">Click to edit</span>}
         </div>
         {txn.note && <div className="text-sm text-graphite mt-0.5 truncate">{txn.note}</div>}
       </div>
       <div className={`font-serif text-2xl tabular-nums ${isIncome ? "text-moss" : "text-[#9B2C2C]"}`}>
         {isIncome ? "+" : "−"}{fmtDec(txn.amount, cur)}
       </div>
+      {isSellRestorable && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onUndoSell(txn); }}
+          className="text-[10px] uppercase tracking-widest border border-moss text-moss hover:bg-moss hover:text-paper transition-colors px-2 py-1 shrink-0"
+          data-testid={`undo-sell-${txn.id}`}
+          title="Delete this income entry AND restore the amount back to the investment"
+        >
+          ↺ Restore
+        </button>
+      )}
       {onDelete && (
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-stone2"
+          className="p-2 hover:bg-[#9B2C2C]/10 text-graphite hover:text-[#9B2C2C] transition-colors"
           data-testid={`del-txn-${txn.id}`}
+          title="Delete transaction"
         >
-          <Trash2 size={14} className="text-graphite" />
+          <Trash2 size={14} />
         </button>
       )}
     </div>
