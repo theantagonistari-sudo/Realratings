@@ -333,6 +333,7 @@ function Dashboard({ store, update, jumpTo }) {
   const cur = store.currency;
   const mk = thisMonth();
   const [editing, setEditing] = useState(null);
+  const [expanded, setExpanded] = useState(null); // which tile's breakdown is open
 
   const stats = useMemo(() => {
     const monthTxns = store.transactions.filter(t => monthKey(t.date) === mk);
@@ -429,50 +430,68 @@ function Dashboard({ store, update, jumpTo }) {
           label="Investments"
           value={fmt(health.totalAssets, cur)}
           icon={<PiggyBank size={16} />}
-          sub={`${(store.assets || []).length} holding${(store.assets || []).length === 1 ? "" : "s"} · click to manage`}
+          sub={`${(store.assets || []).length} holding${(store.assets || []).length === 1 ? "" : "s"} · click for breakdown`}
           testid="stat-investments"
           positive
-          onClick={() => jumpTo && jumpTo("networth")}
+          active={expanded === "investments"}
+          onClick={() => setExpanded(e => e === "investments" ? null : "investments")}
         />
         <StatTile
           label="Debts"
           value={fmt(health.totalDebts, cur)}
           icon={<TrendingDown size={16} />}
-          sub={`${(store.debts || []).length} balance${(store.debts || []).length === 1 ? "" : "s"} to repay · click to manage`}
+          sub={`${(store.debts || []).length} balance${(store.debts || []).length === 1 ? "" : "s"} · click for breakdown`}
           testid="stat-debts"
           negative
-          onClick={() => jumpTo && jumpTo("networth")}
+          active={expanded === "debts"}
+          onClick={() => setExpanded(e => e === "debts" ? null : "debts")}
         />
         <StatTile
           label={`Income · ${new Date().toLocaleString("default", { month: "short" })}`}
           value={fmt(stats.income, cur)}
           icon={<TrendingUp size={16} />}
-          sub="Direct + investment sells · click for ledger"
+          sub="Direct + investment sells · click for breakdown"
           testid="stat-income"
           positive
-          onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "income" })}
+          active={expanded === "income"}
+          onClick={() => setExpanded(e => e === "income" ? null : "income")}
         />
         <StatTile
           label={`Expenses · ${new Date().toLocaleString("default", { month: "short" })}`}
           value={fmt(stats.expense, cur)}
           icon={<TrendingDown size={16} />}
-          sub="Taken from income · click for ledger"
+          sub="Taken from income · click for breakdown"
           testid="stat-expense"
           negative
-          onClick={() => jumpTo && jumpTo("transactions", { month: mk, type: "expense" })}
+          active={expanded === "expenses"}
+          onClick={() => setExpanded(e => e === "expenses" ? null : "expenses")}
         />
         <button
           type="button"
-          onClick={() => jumpTo && jumpTo("balancesheet")}
-          className="col-span-12 md:col-span-4 bg-ink text-paper p-6 rounded-sm text-left hover:bg-ink/90 transition-colors cursor-pointer"
+          onClick={() => setExpanded(e => e === "liquidity" ? null : "liquidity")}
+          className={`col-span-12 md:col-span-4 p-6 rounded-sm text-left transition-colors cursor-pointer ${expanded === "liquidity" ? "bg-moss text-paper" : "bg-ink text-paper hover:bg-ink/90"}`}
           data-testid="stat-liquidity"
-          title="Click to open Balance Sheet"
+          title="Click for breakdown"
         >
-          <div className="flex items-center gap-2 overline text-paper/70 mb-3"><Wallet size={16} /> Current liquidity</div>
+          <div className="flex items-center gap-2 overline text-paper/70 mb-3"><Wallet size={16} /> Current liquidity · click for breakdown</div>
           <div className="font-serif text-4xl md:text-5xl tracking-tighter tabular-nums leading-none" data-testid="stat-liquidity-value">{fmt(stats.balance, cur)}</div>
           <div className="text-xs text-paper/70 mt-2">Cash on hand · income minus expenses cumulative</div>
         </button>
       </div>
+
+      {/* Breakdown panel — shows the make-up of the selected tile */}
+      {expanded && (
+        <TileBreakdown
+          which={expanded}
+          store={store}
+          update={update}
+          jumpTo={jumpTo}
+          mk={mk}
+          cur={cur}
+          onEdit={setEditing}
+          onClose={() => setExpanded(null)}
+        />
+      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-12 gap-6">
@@ -586,18 +605,109 @@ function Dashboard({ store, update, jumpTo }) {
   );
 }
 
-function StatTile({ label, value, icon, sub, positive, negative, testid, onClick }) {
-  const cls = `col-span-6 md:col-span-2 border p-5 rounded-sm text-left transition-colors ${negative ? "bg-white border-[#9B2C2C]/30 hover:bg-[#9B2C2C]/5" : positive ? "bg-white border-moss/30 hover:bg-moss/5" : "bg-white border-rule hover:bg-stone2/40"} ${onClick ? "cursor-pointer" : ""}`;
+function StatTile({ label, value, icon, sub, positive, negative, testid, onClick, active }) {
+  const activeCls = active
+    ? (negative ? "bg-[#9B2C2C] text-paper border-[#9B2C2C]" : positive ? "bg-moss text-paper border-moss" : "bg-ink text-paper border-ink")
+    : (negative ? "bg-white border-[#9B2C2C]/30 hover:bg-[#9B2C2C]/5" : positive ? "bg-white border-moss/30 hover:bg-moss/5" : "bg-white border-rule hover:bg-stone2/40");
+  const cls = `col-span-6 md:col-span-2 border p-5 rounded-sm text-left transition-colors ${activeCls} ${onClick ? "cursor-pointer" : ""}`;
+  const valueTextCls = active
+    ? "text-paper"
+    : (positive ? "text-moss" : negative ? "text-[#9B2C2C]" : "text-ink");
+  const subCls = active ? "text-paper/70" : "text-graphite";
   const content = (
     <>
-      <div className="flex items-center gap-2 overline text-graphite mb-3">{icon}{label}</div>
-      <div className={`font-serif text-2xl md:text-3xl tracking-tighter tabular-nums leading-none ${positive ? "text-moss" : negative ? "text-[#9B2C2C]" : "text-ink"}`}>{value}</div>
-      {sub && <div className="text-xs text-graphite mt-2">{sub}</div>}
+      <div className={`flex items-center gap-2 overline mb-3 ${active ? "text-paper/70" : "text-graphite"}`}>{icon}{label}</div>
+      <div className={`font-serif text-2xl md:text-3xl tracking-tighter tabular-nums leading-none ${valueTextCls}`}>{value}</div>
+      {sub && <div className={`text-xs mt-2 ${subCls}`}>{sub}</div>}
     </>
   );
   return onClick
     ? <button type="button" onClick={onClick} className={cls} data-testid={testid}>{content}</button>
     : <div className={cls} data-testid={testid}>{content}</div>;
+}
+
+// Inline breakdown panel — shows the "make-up" of the selected Dashboard tile
+function TileBreakdown({ which, store, update, jumpTo, mk, cur, onEdit, onClose }) {
+  const meta = {
+    investments: { title: "Investments · make up", accent: "moss", jump: "networth", jumpLabel: "Manage in Net Worth →" },
+    debts:       { title: "Debts · make up",       accent: "red",  jump: "networth", jumpLabel: "Manage in Net Worth →" },
+    income:      { title: "Income this month · make up",   accent: "moss", jump: "transactions", jumpLabel: "Open ledger (income) →", filter: { month: mk, type: "income" } },
+    expenses:    { title: "Expenses this month · make up", accent: "red",  jump: "transactions", jumpLabel: "Open ledger (expenses) →", filter: { month: mk, type: "expense" } },
+    liquidity:   { title: "Current liquidity · calculation", accent: "ink", jump: "balancesheet", jumpLabel: "Open Balance Sheet →" },
+  }[which];
+  const accentClass = meta.accent === "moss" ? "text-moss" : meta.accent === "red" ? "text-[#9B2C2C]" : "text-ink";
+
+  const monthTxns = useMemo(() => store.transactions.filter(t => monthKey(t.date) === mk), [store.transactions, mk]);
+  const monthIncome = monthTxns.filter(t => t.type === "income");
+  const monthExpense = monthTxns.filter(t => t.type === "expense");
+  const cumulativeIncome = store.transactions.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
+  const cumulativeExpense = store.transactions.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
+
+  return (
+    <div className="bg-white border border-ink rounded-sm" data-testid={`tile-breakdown-${which}`}>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-rule">
+        <div className={`overline ${accentClass}`}>{meta.title}</div>
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => jumpTo && jumpTo(meta.jump, meta.filter)} className={`text-xs uppercase tracking-widest ${accentClass} hover:text-ink transition-colors`} data-testid={`tile-breakdown-jump-${which}`}>
+            {meta.jumpLabel}
+          </button>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone2" data-testid={`tile-breakdown-close-${which}`}><X size={14} /></button>
+        </div>
+      </div>
+
+      <div className="p-6">
+        {which === "investments" && (
+          (store.assets || []).length === 0
+            ? <p className="text-graphite italic text-sm">No investments yet. Add one in the Net Worth tab.</p>
+            : <div className="divide-y divide-rule">
+                {(store.assets || []).map(a => <NetWorthInvestmentRow key={a.id} asset={a} cur={cur} update={update} onDelete={() => update(s => ({ assets: (s.assets || []).filter(x => x.id !== a.id) }))} />)}
+              </div>
+        )}
+        {which === "debts" && (
+          (store.debts || []).length === 0
+            ? <p className="text-graphite italic text-sm">No debts recorded.</p>
+            : <div className="divide-y divide-rule">
+                {(store.debts || []).map(d => <NetWorthDebtRow key={d.id} debt={d} cur={cur} update={update} onDelete={() => update(s => ({ debts: (s.debts || []).filter(x => x.id !== d.id) }))} />)}
+              </div>
+        )}
+        {which === "income" && (
+          monthIncome.length === 0
+            ? <p className="text-graphite italic text-sm">No income this month.</p>
+            : monthIncome.map(t => <TxnRow key={t.id} txn={t} cur={cur} onEdit={onEdit} onDelete={() => update(s => ({ transactions: s.transactions.filter(x => x.id !== t.id) }))} />)
+        )}
+        {which === "expenses" && (
+          monthExpense.length === 0
+            ? <p className="text-graphite italic text-sm">No expenses this month.</p>
+            : monthExpense.map(t => <TxnRow key={t.id} txn={t} cur={cur} onEdit={onEdit} onDelete={() => update(s => ({ transactions: s.transactions.filter(x => x.id !== t.id) }))} />)
+        )}
+        {which === "liquidity" && (
+          <div className="space-y-3">
+            <p className="text-sm text-graphite">Current liquidity = starting balance + all income − all expenses (cumulative across every recorded transaction).</p>
+            <div className="border border-rule rounded-sm divide-y divide-rule">
+              <div className="flex justify-between px-4 py-3">
+                <button type="button" onClick={() => jumpTo && jumpTo("networth")} className="text-sm text-graphite hover:text-ink transition-colors underline underline-offset-4 decoration-transparent hover:decoration-current text-left" data-testid="liq-starting-btn">
+                  Starting balance <span className="text-[10px] uppercase tracking-widest text-graphite/60">(edit in Net Worth →)</span>
+                </button>
+                <span className="font-serif tabular-nums text-base text-ink">{fmt(store.settings.startingBalance, cur)}</span>
+              </div>
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-sm text-graphite">+ Cumulative income</span>
+                <span className="font-serif tabular-nums text-base text-moss">+{fmt(cumulativeIncome, cur)}</span>
+              </div>
+              <div className="flex justify-between px-4 py-3">
+                <span className="text-sm text-graphite">− Cumulative expenses</span>
+                <span className="font-serif tabular-nums text-base text-[#9B2C2C]">−{fmt(cumulativeExpense, cur)}</span>
+              </div>
+              <div className="flex justify-between px-4 py-3 bg-stone2/40">
+                <span className="overline text-ink">= Current liquidity</span>
+                <span className="font-serif tabular-nums text-2xl text-ink" data-testid="liq-calc-total">{fmt(store.settings.startingBalance + cumulativeIncome - cumulativeExpense, cur)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function EmptyDashboard({ store, update }) {
@@ -1660,7 +1770,17 @@ function NetWorth({ store, update, jumpTo }) {
   const txnBalance  = store.settings.startingBalance +
     store.transactions.reduce((a, t) => a + (t.type === "income" ? t.amount : -t.amount), 0);
   const netWorth    = txnBalance + totalAssets - totalDebts;
-  const isGreen     = netWorth >= 0 && totalDebts <= totalAssets * 0.4;
+  // 3-state verdict — a positive net worth should NEVER read "in the red"
+  const verdict = netWorth < 0
+    ? "red"
+    : (totalAssets > 0 && totalDebts > totalAssets * 0.6)
+      ? "amber"
+      : "green";
+  const verdictLabel = verdict === "green" ? "In the Green" : verdict === "amber" ? "Holding steady" : "In the Red";
+  const verdictBg = verdict === "green" ? "bg-moss" : verdict === "amber" ? "bg-[#B57B4B]" : "bg-[#9B2C2C]";
+
+  const [editCash, setEditCash] = useState(false);
+  const [cashInput, setCashInput] = useState(String(store.settings.startingBalance));
 
   const addAsset = (e) => {
     e.preventDefault();
@@ -1686,18 +1806,73 @@ function NetWorth({ store, update, jumpTo }) {
         <p className="text-graphite mt-2">Assets (investments, savings, property) minus liabilities (loans, cards).</p>
       </div>
 
-      <div className={`p-8 rounded-sm ${isGreen ? "bg-moss text-paper" : "bg-[#9B2C2C] text-paper"}`} data-testid="networth-hero">
-        <div className="overline text-paper/70 mb-2">Estimated net worth · {isGreen ? "In the Green" : "In the Red"}</div>
-        <div className="font-serif text-6xl md:text-7xl tracking-tighter leading-none tabular-nums">{fmt(netWorth, cur)}</div>
+      <div className={`p-8 rounded-sm ${verdictBg} text-paper`} data-testid="networth-hero">
+        <div className="overline text-paper/70 mb-2">Estimated net worth · {verdictLabel}</div>
+        <div className="font-serif text-6xl md:text-7xl tracking-tighter leading-none tabular-nums" data-testid="networth-value">{fmt(netWorth, cur)}</div>
         <div className="mt-4 flex gap-8 text-sm text-paper/80 flex-wrap">
-          <span>Cash on hand: {fmt(txnBalance, cur)}</span>
-          <span>Assets: {fmt(totalAssets, cur)}</span>
-          <span>Loans: −{fmt(totalDebts, cur)}</span>
+          <button
+            type="button"
+            onClick={() => { setCashInput(String(store.settings.startingBalance)); setEditCash(true); }}
+            className="hover:underline underline-offset-4 decoration-paper/40"
+            data-testid="nw-cash-edit"
+            title="Click to adjust starting balance"
+          >
+            Cash on hand: {fmt(txnBalance, cur)} <span className="text-paper/50 text-xs">(edit)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { const el = document.getElementById("nw-investments"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+            className="hover:underline underline-offset-4 decoration-paper/40"
+            data-testid="nw-assets-jump"
+            title="Click to jump to Investments list"
+          >
+            Assets: {fmt(totalAssets, cur)} <span className="text-paper/50 text-xs">({(store.assets || []).length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { const el = document.getElementById("nw-debts"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+            className="hover:underline underline-offset-4 decoration-paper/40"
+            data-testid="nw-loans-jump"
+            title="Click to jump to Debts list"
+          >
+            Loans: −{fmt(totalDebts, cur)} <span className="text-paper/50 text-xs">({(store.debts || []).length})</span>
+          </button>
         </div>
       </div>
 
+      {editCash && (
+        <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEditCash(false)}>
+          <div className="bg-paper border border-ink max-w-md w-full" onClick={e => e.stopPropagation()} data-testid="cash-edit-dialog">
+            <div className="border-b border-rule px-6 py-4 flex items-center justify-between">
+              <h3 className="font-serif text-2xl">Adjust starting balance</h3>
+              <button onClick={() => setEditCash(false)} className="p-1 hover:bg-stone2"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-graphite">Starting balance is the baseline before your first transaction. Current cash on hand = starting balance + income − expenses.</p>
+              <div>
+                <label className="overline block mb-2">Starting balance ({CURRENCIES[cur]})</label>
+                <input type="number" step="0.01" value={cashInput} onChange={e => setCashInput(e.target.value)} autoFocus
+                  className="w-full bg-transparent border-b border-rule focus:outline-none focus:border-ink py-2 font-serif text-4xl tracking-tighter" data-testid="cash-edit-input" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2 border-t border-rule">
+                <button type="button" onClick={() => setEditCash(false)} className="border border-ink px-5 py-2.5 uppercase tracking-widest text-xs">Cancel</button>
+                <button type="button"
+                  onClick={() => {
+                    const v = parseFloat(cashInput);
+                    if (Number.isNaN(v)) return toast.error("Enter a valid number.");
+                    update(s => ({ settings: { ...s.settings, startingBalance: v } }));
+                    setEditCash(false);
+                    toast.success("Starting balance updated.");
+                  }}
+                  className="bg-ink text-paper hover:bg-moss transition-colors rounded-sm px-6 py-2.5 uppercase tracking-widest text-xs" data-testid="cash-edit-save">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white border border-rule p-6 rounded-sm">
+        <div id="nw-investments" className="bg-white border border-rule p-6 rounded-sm">
           <div className="overline text-moss mb-2 flex items-center gap-2"><PiggyBank size={12} /> Investments</div>
           <div className="font-serif text-3xl tabular-nums mb-4">{fmt(totalAssets, cur)}</div>
           <form onSubmit={addAsset} className="space-y-2 mb-4">
@@ -1715,7 +1890,7 @@ function NetWorth({ store, update, jumpTo }) {
           </div>
         </div>
 
-        <div className="bg-white border border-rule p-6 rounded-sm">
+        <div id="nw-debts" className="bg-white border border-rule p-6 rounded-sm">
           <div className="overline text-[#9B2C2C] mb-2 flex items-center gap-2"><TrendingDown size={12} /> Debts <span className="text-[10px] normal-case tracking-normal text-graphite/60">(balances to repay · no interest tracked)</span></div>
           <div className="font-serif text-3xl tabular-nums mb-4">−{fmt(totalDebts, cur)}</div>
           <form onSubmit={addDebt} className="space-y-2 mb-4">
